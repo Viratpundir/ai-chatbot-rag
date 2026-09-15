@@ -1,0 +1,10 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.log
+.streamlit/
+data/*.faiss
+data/*.pkl
+data/*.index
