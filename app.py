@@ -1,6 +1,23 @@
 import streamlit as st
-import streamlit.components.v1 as components
 from pathlib import Path
+import streamlit.components.v1 as components
+
+
+# ============================================================
+# PAGE CONFIG
+# ============================================================
+
+st.set_page_config(
+    page_title="AI Student Assistant",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+
+# ============================================================
+# IMPORT YOUR RAG COMPONENTS
+# ============================================================
 
 from src.embeddings import get_embeddings
 from src.llm import get_llm
@@ -11,1098 +28,557 @@ from src.vector_store import create_vector_store
 
 
 # ============================================================
-# PAGE CONFIG
-# ============================================================
-
-st.set_page_config(
-    page_title="AI RAG Assistant",
-    page_icon="🤖",
-    layout="wide",
-    initial_sidebar_state="collapsed"
-)
-
-
-# ============================================================
-# CUSTOM CSS
+# GLOBAL CSS
 # ============================================================
 
 st.markdown("""
 <style>
 
-    /* -------------------------------
-       GLOBAL
-    --------------------------------*/
-
-    .stApp {
-        background:
-            radial-gradient(
-                circle at 20% 10%,
-                rgba(75, 85, 200, 0.12),
-                transparent 35%
-            ),
-            radial-gradient(
-                circle at 80% 80%,
-                rgba(0, 200, 180, 0.08),
-                transparent 35%
-            ),
-            #080b12;
-        color: #f5f7fb;
-    }
-
-    #MainMenu {
-        visibility: hidden;
-    }
-
-    footer {
-        visibility: hidden;
-    }
-
-    header {
-        background: transparent !important;
-    }
-
-    /* -------------------------------
-       MAIN CONTAINER
-    --------------------------------*/
-
-    .block-container {
-        max-width: 1100px;
-        padding-top: 3rem;
-        padding-bottom: 5rem;
-    }
-
-    /* -------------------------------
-       HERO
-    --------------------------------*/
-
-    .hero {
-        text-align: center;
-        padding: 35px 20px 20px;
-    }
-
-    .hero-badge {
-        display: inline-block;
-        padding: 8px 15px;
-        border-radius: 30px;
-
-        background: rgba(110, 120, 255, 0.10);
-        border: 1px solid rgba(110, 120, 255, 0.25);
-
-        color: #9da7ff;
-        font-size: 13px;
-        font-weight: 600;
-
-        margin-bottom: 18px;
-    }
-
-    .hero h1 {
-        font-size: clamp(38px, 6vw, 65px);
-        font-weight: 800;
-        letter-spacing: -2px;
-
-        margin: 0;
-
-        background: linear-gradient(
-            90deg,
-            #ffffff,
-            #aeb8ff,
-            #72e5d1
-        );
-
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-    }
-
-    .hero p {
-        color: #8991a3;
-        font-size: 17px;
-        margin-top: 15px;
-    }
-
-    /* -------------------------------
-       STATUS
-    --------------------------------*/
-
-    .status-card {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-
-        padding: 15px 18px;
-
-        border-radius: 16px;
-
-        background: rgba(19, 25, 38, 0.75);
-        border: 1px solid rgba(255,255,255,0.07);
-
-        margin: 20px 0 25px;
-    }
-
-    .status-dot {
-        width: 10px;
-        height: 10px;
-
-        border-radius: 50%;
-
-        background: #4ade80;
-
-        box-shadow:
-            0 0 0 5px rgba(74,222,128,0.10),
-            0 0 15px rgba(74,222,128,0.65);
-
-        animation: pulse 2s infinite;
-    }
-
-    @keyframes pulse {
-
-        0% {
-            transform: scale(1);
-            opacity: 1;
-        }
-
-        50% {
-            transform: scale(1.25);
-            opacity: .7;
-        }
-
-        100% {
-            transform: scale(1);
-            opacity: 1;
-        }
-
-    }
-
-    /* -------------------------------
-       QUESTION CARD
-    --------------------------------*/
-
-    .question-label {
-        color: #a8b0c2;
-        font-size: 14px;
-        font-weight: 600;
-
-        margin-bottom: 8px;
-    }
-
-    /* Streamlit input */
-
-    div[data-baseweb="input"] {
-        background: #111622 !important;
-        border: 1px solid #252d3e !important;
-
-        border-radius: 16px !important;
-
-        min-height: 55px;
-    }
-
-    div[data-baseweb="input"]:focus-within {
-        border-color: #6976ff !important;
-
-        box-shadow:
-            0 0 0 3px rgba(105,118,255,.12);
-    }
-
-    div[data-baseweb="input"] input {
-        color: white !important;
-        font-size: 16px !important;
-    }
-
-    /* -------------------------------
-       BUTTON
-    --------------------------------*/
-
-    div.stButton > button {
-
-        border: 0;
-
-        border-radius: 14px;
-
-        background:
-            linear-gradient(
-                135deg,
-                #6976ff,
-                #5a63e8
-            );
-
-        color: white;
-
-        font-weight: 700;
-
-        padding: 12px 25px;
-
-        transition: all .2s ease;
-    }
-
-    div.stButton > button:hover {
-
-        transform: translateY(-2px);
-
-        box-shadow:
-            0 10px 30px rgba(105,118,255,.25);
-    }
-
-    /* -------------------------------
-       RESPONSE
-    --------------------------------*/
-
-    .response-card {
-
-        margin-top: 25px;
-
-        padding: 25px;
-
-        border-radius: 20px;
-
-        background:
-            linear-gradient(
-                145deg,
-                rgba(19,25,38,.95),
-                rgba(12,16,25,.95)
-            );
-
-        border: 1px solid rgba(255,255,255,.07);
-
-        animation: appear .35s ease;
-    }
-
-    @keyframes appear {
-
-        from {
-            opacity: 0;
-            transform: translateY(10px);
-        }
-
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-
-    }
-
-    /* -------------------------------
-       FEATURE CARDS
-    --------------------------------*/
-
-    .feature-card {
-
-        padding: 20px;
-
-        border-radius: 18px;
-
-        background: rgba(17,22,34,.75);
-
-        border:
-            1px solid rgba(255,255,255,.06);
-
-        transition: .25s ease;
-    }
-
-    .feature-card:hover {
-
-        transform: translateY(-4px);
-
-        border-color:
-            rgba(110,120,255,.3);
-
-        background:
-            rgba(25,31,46,.9);
-    }
-
-    .feature-icon {
-
-        font-size: 25px;
-
-        margin-bottom: 10px;
-    }
-
-    .feature-title {
-
-        font-weight: 700;
-
-        color: white;
-
-        margin-bottom: 5px;
-    }
-
-    .feature-text {
-
-        color: #7f899c;
-
-        font-size: 13px;
-        line-height: 1.5;
-    }
-
-    /* -------------------------------
-       MOBILE
-    --------------------------------*/
-
-    @media(max-width: 700px) {
-
-        .block-container {
-            padding-left: 15px;
-            padding-right: 15px;
-        }
-
-        .hero {
-            padding-top: 20px;
-        }
-
-        .hero h1 {
-            font-size: 40px;
-        }
-
-    }
-
-</style>
-""", unsafe_allow_html=True)
-
-
-# ============================================================
-# FLOATING DRAGGABLE BOT
-# ============================================================
-
-components.html(
-"""
-<!DOCTYPE html>
-
-<html>
-
-<head>
-
-<style>
-
-* {
-    box-sizing: border-box;
+#MainMenu {
+    visibility: hidden;
 }
 
-body {
-    margin: 0;
-    background: transparent;
-    overflow: hidden;
-    font-family: Inter, Arial, sans-serif;
+footer {
+    visibility: hidden;
 }
 
+header {
+    background: transparent !important;
+}
 
-/* -----------------------------
-   BOT
-------------------------------*/
-
-#bot {
-
-    position: fixed;
-
-    right: 35px;
-    bottom: 35px;
-
-    width: 90px;
-    height: 90px;
-
-    border-radius: 50%;
-
-    cursor: grab;
-
-    user-select: none;
-
-    z-index: 999999;
-
+.stApp {
     background:
         radial-gradient(
-            circle at 30% 25%,
-            #ffffff,
-            #9ca6ff 25%,
-            #636df4 55%,
-            #343ca0
-        );
+            circle at 10% 10%,
+            rgba(99,102,241,0.15),
+            transparent 30%
+        ),
+        radial-gradient(
+            circle at 90% 90%,
+            rgba(20,184,166,0.10),
+            transparent 30%
+        ),
+        #070a12;
+}
 
-    border:
-        3px solid rgba(255,255,255,.35);
-
-    box-shadow:
-
-        0 15px 45px
-        rgba(80,90,255,.35),
-
-        0 0 0 8px
-        rgba(105,118,255,.06);
-
-    animation: floating 3s ease-in-out infinite;
-
-    transition:
-        transform .25s ease,
-        box-shadow .25s ease;
+.block-container {
+    max-width: 1050px;
+    padding-top: 40px;
+    padding-bottom: 100px;
 }
 
 
-/* -----------------------------
-   BOT GLOW
-------------------------------*/
+/* =========================================================
+   HERO
+========================================================= */
 
-#bot::before {
+.hero-container {
+    text-align: center;
+    padding: 45px 20px 35px;
+}
 
-    content: "";
+.hero-badge {
+    display: inline-block;
 
-    position: absolute;
+    padding: 8px 16px;
 
-    inset: -12px;
+    border-radius: 30px;
+
+    background: rgba(99,102,241,0.12);
+
+    border: 1px solid rgba(129,140,248,0.25);
+
+    color: #a5b4fc;
+
+    font-size: 13px;
+
+    font-weight: 600;
+
+    letter-spacing: 0.5px;
+
+    margin-bottom: 20px;
+}
+
+.hero-title {
+    font-size: 58px;
+
+    font-weight: 800;
+
+    letter-spacing: -2.5px;
+
+    margin: 0;
+
+    background:
+        linear-gradient(
+            90deg,
+            #ffffff,
+            #a5b4fc,
+            #5eead4
+        );
+
+    -webkit-background-clip: text;
+
+    -webkit-text-fill-color: transparent;
+}
+
+.hero-subtitle {
+    color: #8993a7;
+
+    font-size: 17px;
+
+    margin-top: 16px;
+}
+
+
+/* =========================================================
+   STATUS
+========================================================= */
+
+.status-container {
+
+    display: flex;
+
+    align-items: center;
+
+    gap: 13px;
+
+    padding: 17px 20px;
+
+    background:
+        rgba(17,24,39,0.75);
+
+    border:
+        1px solid rgba(255,255,255,0.07);
+
+    border-radius: 18px;
+
+    margin-bottom: 28px;
+}
+
+.status-dot {
+
+    width: 11px;
+
+    height: 11px;
 
     border-radius: 50%;
 
-    border:
-        1px solid
-        rgba(110,120,255,.20);
+    background: #4ade80;
 
-    animation:
-        botGlow 2.5s infinite;
+    box-shadow:
+        0 0 0 5px rgba(74,222,128,0.08),
+        0 0 18px rgba(74,222,128,0.7);
+
+    animation: pulse 2s infinite;
 }
 
-
-@keyframes botGlow {
-
-    0% {
-        transform: scale(.9);
-        opacity: .4;
-    }
-
-    50% {
-        transform: scale(1.15);
-        opacity: .05;
-    }
-
-    100% {
-        transform: scale(.9);
-        opacity: .4;
-    }
-
-}
-
-
-/* -----------------------------
-   FLOAT
-------------------------------*/
-
-@keyframes floating {
+@keyframes pulse {
 
     0%,100% {
-        transform: translateY(0);
+        transform: scale(1);
     }
 
     50% {
-        transform: translateY(-9px);
+        transform: scale(1.3);
     }
 
 }
 
+.status-title {
 
-/* -----------------------------
-   BOT FACE
-------------------------------*/
+    color: #f3f4f6;
 
-.face {
+    font-weight: 700;
 
-    position: absolute;
+    font-size: 15px;
+}
 
-    left: 50%;
-    top: 50%;
+.status-subtitle {
 
-    transform:
-        translate(-50%, -50%);
+    color: #778197;
 
-    width: 58px;
-    height: 48px;
+    font-size: 12px;
+
+    margin-top: 3px;
+}
+
+
+/* =========================================================
+   QUESTION
+========================================================= */
+
+.question-title {
+
+    color: #d7dce7;
+
+    font-size: 14px;
+
+    font-weight: 600;
+
+    margin-bottom: 8px;
+}
+
+div[data-baseweb="input"] {
+
+    background: #111622 !important;
+
+    border:
+        1px solid #252d3e !important;
+
+    border-radius: 16px !important;
+
+    min-height: 55px;
+}
+
+div[data-baseweb="input"]:focus-within {
+
+    border-color: #6366f1 !important;
+
+    box-shadow:
+        0 0 0 3px rgba(99,102,241,0.12);
+}
+
+div[data-baseweb="input"] input {
+
+    color: #f8fafc !important;
+
+    font-size: 16px !important;
+}
+
+
+/* =========================================================
+   BUTTON
+========================================================= */
+
+.stButton > button {
+
+    border: none !important;
+
+    border-radius: 13px !important;
+
+    padding: 11px 25px !important;
+
+    background:
+        linear-gradient(
+            135deg,
+            #6366f1,
+            #4f46e5
+        ) !important;
+
+    color: white !important;
+
+    font-weight: 700 !important;
+
+    transition: all 0.25s ease !important;
+}
+
+.stButton > button:hover {
+
+    transform: translateY(-2px);
+
+    box-shadow:
+        0 10px 30px rgba(99,102,241,0.3);
+}
+
+
+/* =========================================================
+   RESPONSE
+========================================================= */
+
+.response-card {
+
+    margin-top: 30px;
+
+    padding: 25px;
 
     border-radius: 20px;
 
     background:
         linear-gradient(
             145deg,
-            #11162a,
-            #1d2440
+            rgba(18,24,38,0.95),
+            rgba(10,14,23,0.95)
         );
 
     border:
-        1px solid
-        rgba(255,255,255,.18);
-
-}
-
-
-/* eyes */
-
-.eye {
-
-    position: absolute;
-
-    top: 14px;
-
-    width: 8px;
-    height: 12px;
-
-    border-radius: 50%;
-
-    background: #8fffee;
-
-    box-shadow:
-        0 0 10px
-        rgba(143,255,238,.9);
+        1px solid rgba(255,255,255,0.07);
 
     animation:
-        blink 4s infinite;
+        responseAppear 0.4s ease;
 }
 
+@keyframes responseAppear {
 
-.eye.left {
-    left: 15px;
-}
-
-.eye.right {
-    right: 15px;
-}
-
-
-@keyframes blink {
-
-    0%, 94%, 100% {
-        transform: scaleY(1);
+    from {
+        opacity: 0;
+        transform: translateY(12px);
     }
 
-    96% {
-        transform: scaleY(.08);
+    to {
+        opacity: 1;
+        transform: translateY(0);
     }
 
 }
 
+.response-label {
 
-/* mouth */
+    color: #a5b4fc;
 
-.mouth {
+    font-size: 12px;
 
-    position: absolute;
+    font-weight: 700;
 
-    width: 17px;
-    height: 7px;
+    letter-spacing: 0.7px;
 
-    left: 50%;
-    bottom: 9px;
+    margin-bottom: 12px;
+}
 
-    transform:
-        translateX(-50%);
+.response-text {
 
-    border-bottom:
-        2px solid #8fffee;
+    color: #e5e7eb;
 
-    border-radius: 50%;
+    font-size: 16px;
 
+    line-height: 1.8;
 }
 
 
-/* -----------------------------
-   SPEECH BUBBLE
-------------------------------*/
+/* =========================================================
+   FEATURE CARDS
+========================================================= */
 
-#bubble {
+.features {
 
-    position: fixed;
+    display: grid;
 
-    right: 135px;
-    bottom: 55px;
+    grid-template-columns:
+        repeat(3, 1fr);
 
-    max-width: 230px;
+    gap: 15px;
 
-    padding: 13px 17px;
+    margin-top: 35px;
+}
 
-    border-radius: 15px 15px 4px 15px;
+.feature-card {
+
+    padding: 22px;
+
+    border-radius: 18px;
 
     background:
-        rgba(17,22,34,.96);
+        rgba(17,24,39,0.7);
+
+    border:
+        1px solid rgba(255,255,255,0.06);
+
+    transition: all 0.25s ease;
+}
+
+.feature-card:hover {
+
+    transform: translateY(-5px);
+
+    border-color:
+        rgba(99,102,241,0.35);
+
+    background:
+        rgba(23,30,48,0.9);
+}
+
+.feature-icon {
+
+    font-size: 27px;
+
+    margin-bottom: 12px;
+}
+
+.feature-title {
 
     color: white;
 
-    font-size: 14px;
+    font-weight: 700;
 
-    line-height: 1.4;
+    font-size: 15px;
 
-    border:
-        1px solid
-        rgba(255,255,255,.10);
+    margin-bottom: 7px;
+}
 
-    box-shadow:
-        0 10px 35px
-        rgba(0,0,0,.35);
+.feature-text {
 
-    opacity: 0;
+    color: #7d8799;
 
-    transform:
-        translateY(8px)
-        scale(.95);
+    font-size: 13px;
 
-    pointer-events: none;
-
-    transition:
-        .25s ease;
-
+    line-height: 1.6;
 }
 
 
-/* -----------------------------
-   ACTIVE
-------------------------------*/
+@media(max-width: 700px) {
 
-#bot.active {
+    .hero-title {
+        font-size: 40px;
+    }
 
-    cursor: grabbing;
-
-    transform:
-        scale(1.08);
-
-    box-shadow:
-
-        0 20px 55px
-        rgba(80,90,255,.55),
-
-        0 0 0 12px
-        rgba(105,118,255,.08);
-}
-
-
-#bot.active + #bubble {
-
-    opacity: 1;
-
-    transform:
-        translateY(0)
-        scale(1);
-
-}
-
-
-/* -----------------------------
-   DRAG HINT
-------------------------------*/
-
-#hint {
-
-    position: fixed;
-
-    right: 30px;
-    bottom: 130px;
-
-    color:
-        rgba(255,255,255,.45);
-
-    font-size: 11px;
-
-    opacity: .8;
+    .features {
+        grid-template-columns: 1fr;
+    }
 
 }
 
 </style>
-
-</head>
-
-
-<body>
-
-
-<div id="bot">
-
-    <div class="face">
-
-        <div class="eye left"></div>
-
-        <div class="eye right"></div>
-
-        <div class="mouth"></div>
-
-    </div>
-
-</div>
-
-
-<div id="bubble">
-    Ask me a question 👋
-</div>
-
-
-<div id="hint">
-    Drag me anywhere
-</div>
-
-
-<script>
-
-const bot =
-    document.getElementById("bot");
-
-const bubble =
-    document.getElementById("bubble");
-
-let dragging = false;
-
-let offsetX = 0;
-let offsetY = 0;
-
-let moved = false;
-
-
-/* --------------------------------
-   POINTER DOWN
----------------------------------*/
-
-bot.addEventListener(
-    "pointerdown",
-    function(e) {
-
-        dragging = true;
-
-        moved = false;
-
-        bot.setPointerCapture(
-            e.pointerId
-        );
-
-        const rect =
-            bot.getBoundingClientRect();
-
-        offsetX =
-            e.clientX - rect.left;
-
-        offsetY =
-            e.clientY - rect.top;
-
-        bot.classList.add(
-            "active"
-        );
-
-        e.preventDefault();
-
-    }
-);
-
-
-/* --------------------------------
-   POINTER MOVE
----------------------------------*/
-
-bot.addEventListener(
-    "pointermove",
-    function(e) {
-
-        if (!dragging) return;
-
-        moved = true;
-
-        let x =
-            e.clientX - offsetX;
-
-        let y =
-            e.clientY - offsetY;
-
-
-        const maxX =
-            window.innerWidth -
-            bot.offsetWidth -
-            10;
-
-        const maxY =
-            window.innerHeight -
-            bot.offsetHeight -
-            10;
-
-
-        x =
-            Math.max(
-                10,
-                Math.min(x, maxX)
-            );
-
-        y =
-            Math.max(
-                10,
-                Math.min(y, maxY)
-            );
-
-
-        bot.style.left =
-            x + "px";
-
-        bot.style.top =
-            y + "px";
-
-        bot.style.right =
-            "auto";
-
-        bot.style.bottom =
-            "auto";
-
-
-        bubble.style.left =
-            Math.max(
-                10,
-                x - 240
-            ) + "px";
-
-        bubble.style.top =
-            Math.max(
-                10,
-                y + 10
-            ) + "px";
-
-        bubble.style.right =
-            "auto";
-
-        bubble.style.bottom =
-            "auto";
-
-
-        e.preventDefault();
-
-    }
-);
-
-
-/* --------------------------------
-   POINTER UP
----------------------------------*/
-
-bot.addEventListener(
-    "pointerup",
-    function(e) {
-
-        dragging = false;
-
-        bot.classList.remove(
-            "active"
-        );
-
-
-        if (!moved) {
-
-            bubble.style.opacity =
-                "1";
-
-            bubble.style.transform =
-                "translateY(0) scale(1)";
-
-
-            bubble.innerHTML =
-                "Ask me a question 👋";
-
-
-            setTimeout(() => {
-
-                bubble.style.opacity =
-                    "0";
-
-                bubble.style.transform =
-                    "translateY(8px) scale(.95)";
-
-            }, 3000);
-
-        }
-
-    }
-);
-
-</script>
-
-</body>
-
-</html>
-""",
-height=1,
-)
+""", unsafe_allow_html=True)
 
 
 # ============================================================
 # HERO
 # ============================================================
 
-st.markdown(
-"""
-<div class="hero">
+st.markdown("""
+<div class="hero-container">
 
     <div class="hero-badge">
         ✦ AI POWERED • RAG ASSISTANT
     </div>
 
-    <h1>AI Student Assistant</h1>
+    <h1 class="hero-title">
+        AI Student Assistant
+    </h1>
 
-    <p>
+    <p class="hero-subtitle">
         Ask questions from your documents using Retrieval-Augmented Generation.
     </p>
 
 </div>
-""",
-unsafe_allow_html=True
-)
+""", unsafe_allow_html=True)
 
 
 # ============================================================
 # STATUS
 # ============================================================
 
-st.markdown(
-"""
-<div class="status-card">
+st.markdown("""
+<div class="status-container">
 
     <div class="status-dot"></div>
 
     <div>
-        <strong>AI Assistant Online</strong>
-        <div style="color:#778197;font-size:12px;">
+
+        <div class="status-title">
+            AI Assistant Online
+        </div>
+
+        <div class="status-subtitle">
             Connected to your local RAG pipeline
         </div>
+
     </div>
 
 </div>
-""",
-unsafe_allow_html=True
-)
-
-
-# ============================================================
-# PDF INFO
-# ============================================================
-
-BASE_DIR = Path(__file__).resolve().parent
-
-PDF_PATH = (
-    BASE_DIR /
-    "data" /
-    "sample.pdf"
-)
+""", unsafe_allow_html=True)
 
 
 # ============================================================
 # QUESTION
 # ============================================================
 
-st.markdown(
-"""
-<div class="question-label">
+st.markdown("""
+<div class="question-title">
     💬 Ask your document anything
 </div>
-""",
-unsafe_allow_html=True
-)
+""", unsafe_allow_html=True)
 
 
 question = st.text_input(
-    "",
+    "question",
     placeholder="e.g. What are the main concepts explained in this document?",
     label_visibility="collapsed"
 )
 
 
-ask = st.button(
-    "Ask AI  →",
-    use_container_width=False
-)
+ask = st.button("Ask AI →")
 
 
 # ============================================================
-# RAG PIPELINE
+# RAG
 # ============================================================
 
-if ask and question.strip():
+if ask:
 
-    with st.spinner("Thinking..."):
+    if not question.strip():
 
-        try:
+        st.warning("Please enter a question first.")
 
-            # Load PDF
-            documents = load_documents(
-                str(PDF_PATH)
-            )
+    else:
 
-            # Split documents
-            chunks = split_docs(
-                documents
-            )
+        with st.spinner("🤖 Thinking..."):
 
-            # Embeddings
-            embeddings = get_embeddings()
+            try:
 
-            # Vector database
-            vector_store = create_vector_store(
-                chunks,
-                embeddings
-            )
+                BASE_DIR = Path(__file__).resolve().parent
 
-            # LLM
-            llm = get_llm()
+                PDF_PATH = (
+                    BASE_DIR /
+                    "data" /
+                    "sample.pdf"
+                )
 
-            # RAG chain
-            rag_chain = build_rag_chain(
-                llm,
-                vector_store
-            )
+                documents = load_documents(
+                    str(PDF_PATH)
+                )
 
-            # Ask
-            answer = rag_chain.invoke(
-                question
-            )
+                chunks = split_docs(
+                    documents
+                )
 
+                embeddings = get_embeddings()
 
-            # -------------------------
-            # RESPONSE
-            # -------------------------
+                vector_store = create_vector_store(
+                    chunks,
+                    embeddings
+                )
 
-            st.markdown(
-                f"""
-                <div class="response-card">
+                llm = get_llm()
 
-                    <div style="
-                        color:#8994ff;
-                        font-size:13px;
-                        font-weight:700;
-                        margin-bottom:12px;
-                    ">
-                        🤖 AI RESPONSE
+                rag_chain = build_rag_chain(
+                    llm,
+                    vector_store
+                )
+
+                answer = rag_chain.invoke(
+                    question
+                )
+
+                st.markdown(
+                    f"""
+                    <div class="response-card">
+
+                        <div class="response-label">
+                            🤖 AI RESPONSE
+                        </div>
+
+                        <div class="response-text">
+                            {answer}
+                        </div>
+
                     </div>
+                    """,
+                    unsafe_allow_html=True
+                )
 
-                    <div style="
-                        color:#e6e9f0;
-                        font-size:16px;
-                        line-height:1.8;
-                    ">
-                        {answer}
-                    </div>
+            except Exception as e:
 
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-
-        except Exception as e:
-
-            st.error(
-                f"Something went wrong: {str(e)}"
-            )
-
-
-elif ask:
-
-    st.warning(
-        "Please enter a question first."
-    )
+                st.error(
+                    f"Error: {str(e)}"
+                )
 
 
 # ============================================================
 # FEATURES
 # ============================================================
 
-st.markdown(
-"""
-<br>
-
-<div style="
-    display:grid;
-    grid-template-columns:
-        repeat(auto-fit,minmax(220px,1fr));
-    gap:15px;
-">
+st.markdown("""
+<div class="features">
 
     <div class="feature-card">
 
@@ -1115,8 +591,8 @@ st.markdown(
         </div>
 
         <div class="feature-text">
-            Answers are generated using information
-            retrieved directly from your PDF.
+            Answers are generated from information
+            retrieved directly from your documents.
         </div>
 
     </div>
@@ -1133,8 +609,8 @@ st.markdown(
         </div>
 
         <div class="feature-text">
-            Combines semantic search with an AI language
-            model for contextual answers.
+            Combines semantic search with an AI
+            language model for contextual answers.
         </div>
 
     </div>
@@ -1151,13 +627,372 @@ st.markdown(
         </div>
 
         <div class="feature-text">
-            Your current setup can run with a local
-            Ollama model.
+            Runs with your local Ollama-based AI
+            setup for private document interaction.
         </div>
 
     </div>
 
 </div>
-""",
-unsafe_allow_html=True
-)
+""", unsafe_allow_html=True)
+
+
+# ============================================================
+# FLOATING AI BOT
+# ============================================================
+
+components.html("""
+
+<style>
+
+#ai-bot {
+
+    position: fixed;
+
+    right: 30px;
+
+    bottom: 30px;
+
+    width: 82px;
+
+    height: 82px;
+
+    border-radius: 50%;
+
+    background:
+        radial-gradient(
+            circle at 30% 25%,
+            #ffffff,
+            #a5b4fc 25%,
+            #6366f1 60%,
+            #312e81
+        );
+
+    border:
+        3px solid rgba(255,255,255,0.3);
+
+    box-shadow:
+        0 15px 45px rgba(79,70,229,0.45);
+
+    cursor: grab;
+
+    z-index: 99999;
+
+    animation:
+        botFloat 3s ease-in-out infinite;
+
+    user-select: none;
+
+}
+
+@keyframes botFloat {
+
+    0%,100% {
+        transform: translateY(0);
+    }
+
+    50% {
+        transform: translateY(-8px);
+    }
+
+}
+
+.bot-face {
+
+    position: absolute;
+
+    width: 54px;
+
+    height: 45px;
+
+    left: 50%;
+
+    top: 50%;
+
+    transform:
+        translate(-50%, -50%);
+
+    border-radius: 18px;
+
+    background:
+        linear-gradient(
+            145deg,
+            #111827,
+            #1e293b
+        );
+
+    border:
+        1px solid rgba(255,255,255,0.2);
+
+}
+
+.bot-eye {
+
+    position: absolute;
+
+    top: 13px;
+
+    width: 8px;
+
+    height: 11px;
+
+    border-radius: 50%;
+
+    background: #67e8f9;
+
+    box-shadow:
+        0 0 10px #67e8f9;
+
+    animation:
+        blink 4s infinite;
+
+}
+
+.bot-eye.left {
+    left: 14px;
+}
+
+.bot-eye.right {
+    right: 14px;
+}
+
+@keyframes blink {
+
+    0%,95%,100% {
+        transform: scaleY(1);
+    }
+
+    97% {
+        transform: scaleY(0.1);
+    }
+
+}
+
+.bot-mouth {
+
+    position: absolute;
+
+    bottom: 9px;
+
+    left: 50%;
+
+    width: 16px;
+
+    height: 7px;
+
+    transform:
+        translateX(-50%);
+
+    border-bottom:
+        2px solid #67e8f9;
+
+    border-radius: 50%;
+
+}
+
+#bot-message {
+
+    position: fixed;
+
+    right: 125px;
+
+    bottom: 55px;
+
+    max-width: 220px;
+
+    padding: 13px 17px;
+
+    border-radius:
+        16px 16px 4px 16px;
+
+    background:
+        rgba(17,24,39,0.97);
+
+    color: white;
+
+    border:
+        1px solid rgba(255,255,255,0.1);
+
+    font-family:
+        Arial, sans-serif;
+
+    font-size: 14px;
+
+    box-shadow:
+        0 12px 35px rgba(0,0,0,0.35);
+
+    opacity: 0;
+
+    transform:
+        translateY(10px);
+
+    transition:
+        all .25s ease;
+
+    pointer-events: none;
+
+}
+
+#bot-message.show {
+
+    opacity: 1;
+
+    transform:
+        translateY(0);
+
+}
+
+</style>
+
+
+<div id="ai-bot">
+
+    <div class="bot-face">
+
+        <div class="bot-eye left"></div>
+
+        <div class="bot-eye right"></div>
+
+        <div class="bot-mouth"></div>
+
+    </div>
+
+</div>
+
+
+<div id="bot-message">
+    Ask me a question 👋
+</div>
+
+
+<script>
+
+const bot =
+    document.getElementById("ai-bot");
+
+const message =
+    document.getElementById("bot-message");
+
+let dragging = false;
+
+let startX = 0;
+
+let startY = 0;
+
+let moved = false;
+
+
+bot.addEventListener(
+    "pointerdown",
+    function(event) {
+
+        dragging = true;
+
+        moved = false;
+
+        const rect =
+            bot.getBoundingClientRect();
+
+        startX =
+            event.clientX - rect.left;
+
+        startY =
+            event.clientY - rect.top;
+
+        bot.setPointerCapture(
+            event.pointerId
+        );
+
+        bot.style.animation =
+            "none";
+
+    }
+);
+
+
+bot.addEventListener(
+    "pointermove",
+    function(event) {
+
+        if (!dragging) {
+            return;
+        }
+
+        moved = true;
+
+        let x =
+            event.clientX - startX;
+
+        let y =
+            event.clientY - startY;
+
+        const maxX =
+            window.innerWidth -
+            bot.offsetWidth;
+
+        const maxY =
+            window.innerHeight -
+            bot.offsetHeight;
+
+        x =
+            Math.max(
+                5,
+                Math.min(x, maxX - 5)
+            );
+
+        y =
+            Math.max(
+                5,
+                Math.min(y, maxY - 5)
+            );
+
+        bot.style.left =
+            x + "px";
+
+        bot.style.top =
+            y + "px";
+
+        bot.style.right =
+            "auto";
+
+        bot.style.bottom =
+            "auto";
+
+    }
+);
+
+
+bot.addEventListener(
+    "pointerup",
+    function() {
+
+        dragging = false;
+
+        bot.style.animation =
+            "botFloat 3s ease-in-out infinite";
+
+        if (!moved) {
+
+            message.classList.add(
+                "show"
+            );
+
+            setTimeout(
+                function() {
+
+                    message.classList.remove(
+                        "show"
+                    );
+
+                },
+                3000
+            );
+
+        }
+
+    }
+);
+
+</script>
+
+""", height=1)
