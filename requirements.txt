@@ -1,6 +1,7 @@
 langchain
 langchain_community
 langchain-openai
+langchain-text-splitters
 fastapi[standard]
 openai
 faiss-cpu
@@ -8,3 +9,4 @@ streamlit
 pypdf
 python-dotenv
 tiktoken
+sentence-transformers

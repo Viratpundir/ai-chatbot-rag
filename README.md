@@ -1,31 +1,33 @@
-# AI Chatbot Project
+# AI Chatbot with LLM + RAG
 
-This workspace contains the AI chatbot app in the nested folder `ai-chatbot-rag`.
+This project loads a PDF, splits it into chunks, creates vector embeddings, and uses a Retrieval-Augmented Generation (RAG) chain to answer questions with a Streamlit UI.
 
-## Quick start
+## Setup
 
-From the workspace root, run:
+1. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+2. Set your OpenAI API key:
+   ```bash
+   set OPENAI_API_KEY=your_api_key_here
+   ```
+   or update `config.py`.
+3. Place your PDF at `data/sample.pdf` or change the path in `app.py`.
 
-```cmd
-run_app.cmd
-```
+## Run
 
-Or manually:
-
-```cmd
-cd ai-chatbot-rag
-python -m pip install -r requirements.txt
+```bash
 streamlit run app.py
 ```
 
-If you want to run directly from the workspace root, use:
+## Files
 
-```cmd
-streamlit run app.py
-```
-
-## Notes
-
-- The app is located in `ai-chatbot-rag/app.py`
-- Put your PDF in `ai-chatbot-rag/data/sample.pdf`
-- Set `OPENAI_API_KEY` in your environment before running the app
+- `app.py` - Streamlit front-end and pipeline loader
+- `src/loader.py` - PDF loading
+- `src/splitter.py` - document chunking
+- `src/embeddings.py` - OpenAI embeddings
+- `src/vector_store.py` - FAISS vector store creation
+- `src/retriever.py` - retriever configuration
+- `src/rag_chain.py` - RAG QA chain setup
+- `src/llm.py` - LLM model configuration
