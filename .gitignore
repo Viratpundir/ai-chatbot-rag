@@ -8,3 +8,14 @@ __pycache__/
 data/*.faiss
 data/*.pkl
 data/*.index
+
+# Enterprise platform runtime data and generated indexes
+enterprise-ai-platform/.pytest_cache/
+enterprise-ai-platform/data/*.db
+enterprise-ai-platform/data/uploads/
+enterprise-ai-platform/data/vector_store/**/*.faiss
+enterprise-ai-platform/data/vector_store/**/*.pkl
+enterprise-ai-platform/data/vector_store/**/*.index
+
+# Local nested checkout of the original app
+ai-chatbot-rag/
