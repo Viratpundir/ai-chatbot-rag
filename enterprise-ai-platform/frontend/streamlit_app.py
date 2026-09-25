@@ -1,514 +1,1994 @@
-import base64
-import html
-import json
 import os
+import time
+from typing import Any, Dict, List, Optional
 
 import requests
 import streamlit as st
 
-API = os.getenv("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
-TIMEOUT = 30
 
-st.set_page_config(page_title="Enterprise AI Knowledge Platform", page_icon="🤖",
-                   layout="wide", initial_sidebar_state="expanded")
+# ============================================================
+# ENTERPRISE AI KNOWLEDGE PLATFORM - STREAMLIT FRONTEND
+# ============================================================
+#
+# Backend expected:
+#   FastAPI: http://127.0.0.1:8000
+#
+# Authentication:
+#   POST /api/v1/auth/login
+#   POST /api/v1/auth/request-otp
+#   POST /api/v1/auth/verify-otp
+#   POST /api/v1/auth/register
+#
+# Documents:
+#   GET  /api/v1/documents
+#   POST /api/v1/documents/upload
+#   GET  /api/v1/documents/{id}
+#   DELETE /api/v1/documents/{id}
+#
+# AI:
+#   POST /api/v1/chat
+#   POST /api/v1/guide
+#
+# System:
+#   GET /api/v1/health
+#
+# If your backend uses different routes, change only the
+# ENDPOINTS dictionary below.
+# ============================================================
 
-# ============================================================ THEME
-st.markdown("""
+
+st.set_page_config(
+    page_title="Enterprise AI",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+
+# ============================================================
+# CONFIGURATION
+# ============================================================
+
+API_BASE_URL = os.getenv(
+    "API_BASE_URL",
+    "http://127.0.0.1:8000",
+).rstrip("/")
+
+ENDPOINTS = {
+    "health": "/api/v1/health",
+
+    "login": "/api/v1/auth/login",
+    "request_otp": "/api/v1/auth/request-otp",
+    "verify_otp": "/api/v1/auth/verify-otp",
+    "register": "/api/v1/auth/register",
+
+    "documents": "/api/v1/documents",
+    "upload": "/api/v1/documents/upload",
+
+    "chat": "/api/v1/chat",
+    "guide": "/api/v1/guide",
+}
+
+REQUEST_TIMEOUT = 45
+POLL_SECONDS = 3
+MAX_STATUS_POLLS = 20
+
+
+# ============================================================
+# SESSION STATE
+# ============================================================
+
+DEFAULT_STATE = {
+    "token": None,
+    "user": None,
+    "page": "Dashboard",
+    "documents": [],
+    "selected_documents": [],
+    "messages": [],
+    "history": [],
+    "otp_requested": False,
+    "backend_online": False,
+    "last_latency": None,
+    "last_sources": [],
+    "last_retrieval_debug": [],
+    "pending_upload": False,
+}
+
+for key, value in DEFAULT_STATE.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
+
+
+# ============================================================
+# CSS
+# ============================================================
+
+st.markdown(
+    """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-:root{--a:#6d5bff;--b:#00c2a8;--c:#ff6b6b;--d:#ffb020;--bg:#f5f4ff;--card:#ffffff;--line:#e7e4fb;
- --ink:#1c1836;--mut:#6b6590;--shadow:0 10px 30px rgba(76,59,196,.08)}
-html,body,[class*="css"],.stApp{font-family:'Inter',sans-serif}
-.stApp{background:radial-gradient(1000px 560px at 6% -8%,rgba(109,91,255,.16),transparent 55%),
- radial-gradient(900px 560px at 100% 0%,rgba(0,194,168,.14),transparent 55%),
- radial-gradient(800px 500px at 50% 120%,rgba(255,107,107,.10),transparent 55%),var(--bg);color:var(--ink)}
-#MainMenu,footer,[data-testid="stToolbar"],[data-testid="stDecoration"]{display:none!important}
-header[data-testid="stHeader"]{background:transparent}
-.block-container{padding-top:2.2rem;max-width:1200px}
-section[data-testid="stSidebar"]{background:#ffffff;border-right:1px solid var(--line)}
-h1,h2,h3{letter-spacing:-.02em;color:var(--ink)}
-p,span,div,label{color:var(--ink)}
-::selection{background:rgba(109,91,255,.25)}
 
-/* hero */
-.hero{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:22px;padding:34px 38px;margin-bottom:26px;
- background:linear-gradient(120deg,#7a5cff,#8f5bff 35%,#00c2a8 100%);box-shadow:var(--shadow)}
-.hero:after{content:"";position:absolute;right:-50px;top:-70px;width:260px;height:260px;border-radius:50%;
- background:radial-gradient(circle,rgba(255,208,90,.55),transparent 70%)}
-.hero:before{content:"";position:absolute;left:30%;bottom:-90px;width:200px;height:200px;border-radius:50%;
- background:radial-gradient(circle,rgba(255,107,107,.35),transparent 70%)}
-.hero h1{font-size:34px;font-weight:800;margin:0 0 6px;position:relative;z-index:1;color:#fff}
-.hero p{color:rgba(255,255,255,.92);margin:0;font-size:15.5px;max-width:640px;position:relative;z-index:1}
+:root {
+    --primary: #533ee5;
+    --primary-2: #7a5cff;
+    --secondary: #00a88f;
+    --surface: #fdf8ff;
+    --surface-low: #f7f1ff;
+    --surface-card: #ffffff;
+    --text: #1b1735;
+    --muted: #6c687b;
+    --border: #e7e1f2;
+    --danger: #ba1a1a;
+}
 
-/* cards */
-.metric{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px;box-shadow:var(--shadow)}
-.metric .ico{width:42px;height:42px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:19px;
- background:linear-gradient(135deg,var(--a),var(--b));margin-bottom:14px}
-.metric .num{font-size:32px;font-weight:800;line-height:1;color:var(--ink)}
-.metric .lbl{color:var(--mut);font-size:13.5px;margin-top:6px}
-.feature{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px;margin-bottom:10px;min-height:128px;box-shadow:var(--shadow)}
-.feature h4{margin:0 0 6px;font-size:17px;color:var(--ink)}.feature p{margin:0;color:var(--mut);font-size:14px;line-height:1.5}
-.doc{display:flex;align-items:center;gap:14px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 18px;margin-bottom:8px;box-shadow:var(--shadow)}
-.doc .name{font-weight:600;flex:1;word-break:break-all;color:var(--ink)}.doc .meta{color:var(--mut);font-size:13px}
-.pill{padding:4px 12px;border-radius:999px;font-size:12px;font-weight:700;border:1px solid}
-.p-ready{color:#0a9b6f;background:#e3faf1;border-color:#b9f0da}
-.p-proc{color:#b4790a;background:#fff4de;border-color:#ffe2a8}
-.p-fail{color:#e0455a;background:#ffe9ec;border-color:#ffc7cf}
-.p-other{color:var(--mut);background:#f1effc;border-color:var(--line)}
-.role{display:inline-block;padding:3px 12px;border-radius:999px;font-size:12px;font-weight:700;background:#ece8ff;
- color:#5b3fe0;border:1px solid #d9d0ff}
-.role.admin{background:#ffe9d6;color:#c9660a;border-color:#ffd2a8}
-.role.student{background:#d7f7f0;color:#0a9b8a;border-color:#b6efe2}
-.avatar{width:46px;height:46px;border-radius:14px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:19px;
- background:linear-gradient(135deg,var(--a),var(--c));color:#fff}
-.brand{font-size:20px;font-weight:800;letter-spacing:-.02em;color:var(--ink)}
-.brand span{color:var(--mut);font-weight:500;font-size:12.5px;display:block;margin-top:2px}
-.status{display:inline-flex;align-items:center;gap:8px;padding:6px 14px;border-radius:999px;font-size:13px;border:1px solid var(--line);background:var(--card)}
-.dot{width:8px;height:8px;border-radius:50%}
-.empty{text-align:center;color:var(--mut);border:1.5px dashed #cfc7ff;border-radius:18px;padding:44px 20px;background:#fbfaff}
-.empty b{display:block;color:var(--ink);font-size:17px;margin-bottom:4px}
-.bullet{display:flex;gap:14px;margin:18px 0}.bullet i{font-style:normal;font-size:20px}
-.bullet b{display:block;color:var(--ink)}.bullet span{color:var(--mut);font-size:14px}
+html, body, [class*="css"] {
+    font-family: 'Inter', sans-serif;
+}
 
-/* widgets */
-.stButton>button,.stFormSubmitButton>button{border-radius:12px;border:1px solid var(--line);background:#fff;
- color:var(--ink);font-weight:600;padding:.55rem 1rem;transition:.15s}
-.stButton>button:hover{border-color:var(--a);color:var(--a);background:#f4f2ff}
-.stButton>button[kind="primary"],.stButton>button[data-testid="stBaseButton-primary"]{
- background:linear-gradient(135deg,#7a5cff,#ff6b6b 130%);border:0;color:#fff;box-shadow:0 10px 24px rgba(122,92,255,.35)}
-.stButton>button[kind="primary"]:hover,.stButton>button[data-testid="stBaseButton-primary"]:hover{filter:brightness(1.07);color:#fff}
-.stTextInput input,.stTextArea textarea,div[data-baseweb="select"]>div{background:#fbfaff!important;
- border:1px solid var(--line)!important;border-radius:12px!important;color:var(--ink)!important}
-.stTextInput input:focus,.stTextArea textarea:focus{border-color:var(--a)!important;box-shadow:0 0 0 3px rgba(109,91,255,.18)!important}
-[data-testid="stVerticalBlockBorderWrapper"]{border-radius:20px;border-color:var(--line);background:#fff;box-shadow:var(--shadow)}
-[data-testid="stFileUploaderDropzone"]{background:#f4f2ff;border:1.5px dashed #b7a8ff;border-radius:16px}
-[data-testid="stChatMessage"]{background:#fff;border:1px solid var(--line);border-radius:16px;padding:14px 18px;box-shadow:var(--shadow)}
-[data-testid="stChatInput"]{border-radius:14px}
-.stTabs [data-baseweb="tab-list"]{gap:6px}.stTabs [data-baseweb="tab"]{border-radius:10px;padding:8px 16px;color:var(--mut)}
-.stTabs [aria-selected="true"]{background:#efeaff;color:var(--a)!important}
-section[data-testid="stSidebar"] [role="radiogroup"] label{padding:9px 12px;border-radius:12px;margin-bottom:2px;transition:.15s;color:var(--ink)}
-section[data-testid="stSidebar"] [role="radiogroup"] label:hover{background:#f4f2ff}
-section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked){background:linear-gradient(90deg,#efeaff,#dcfbf5);color:var(--a)}
-section[data-testid="stSidebar"] [role="radiogroup"] label>div:first-child{display:none}
-[data-testid="stMetricValue"]{color:var(--ink)}
-.stCaption,[data-testid="stCaptionContainer"]{color:var(--mut)!important}
+.stApp {
+    background:
+        radial-gradient(circle at 80% 0%, rgba(122,92,255,.10), transparent 28%),
+        radial-gradient(circle at 100% 70%, rgba(0,194,168,.07), transparent 25%),
+        #fdf8ff;
+    color: var(--text);
+}
+
+[data-testid="stHeader"] {
+    background: rgba(253,248,255,.75);
+}
+
+[data-testid="stSidebar"] {
+    background: #f7f1ff;
+    border-right: 1px solid rgba(80,70,120,.08);
+}
+
+[data-testid="stSidebar"] > div:first-child {
+    padding-top: 1rem;
+}
+
+.block-container {
+    max-width: 1440px;
+    padding-top: 1.5rem;
+    padding-bottom: 3rem;
+}
+
+h1, h2, h3, h4 {
+    color: var(--text) !important;
+    letter-spacing: -.02em;
+}
+
+p, label, .stCaption {
+    color: var(--muted);
+}
+
+div[data-testid="stButton"] > button {
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    font-weight: 600;
+    min-height: 42px;
+    transition: .2s ease;
+}
+
+div[data-testid="stButton"] > button:hover {
+    border-color: #b8aceb;
+    transform: translateY(-1px);
+}
+
+div[data-testid="stButton"] > button[kind="primary"] {
+    background: linear-gradient(135deg, var(--primary), var(--primary-2));
+    color: white;
+    border: none;
+}
+
+.enterprise-card {
+    background: var(--surface-card);
+    border: 1px solid rgba(80,70,120,.08);
+    border-radius: 16px;
+    padding: 22px;
+    box-shadow: 0 5px 24px rgba(39,25,90,.05);
+}
+
+.hero {
+    position: relative;
+    overflow: hidden;
+    border-radius: 18px;
+    padding: 34px;
+    color: white;
+    background: linear-gradient(105deg, #7458ff 0%, #8e5bff 50%, #00bfa5 100%);
+    box-shadow: 0 18px 45px rgba(83,62,229,.18);
+}
+
+.hero h1, .hero p {
+    color: white !important;
+}
+
+.hero:after {
+    content: "";
+    position: absolute;
+    width: 360px;
+    height: 360px;
+    right: -100px;
+    bottom: -180px;
+    border-radius: 50%;
+    background: rgba(255,255,255,.15);
+    filter: blur(25px);
+}
+
+.metric {
+    background: white;
+    border: 1px solid rgba(80,70,120,.08);
+    border-radius: 15px;
+    padding: 18px;
+    min-height: 105px;
+    box-shadow: 0 5px 22px rgba(39,25,90,.04);
+}
+
+.metric-value {
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--text);
+}
+
+.metric-label {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 3px;
+}
+
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.badge-ready {
+    background: #e3faf4;
+    color: #006b5c;
+}
+
+.badge-processing {
+    background: #fff4d9;
+    color: #936000;
+}
+
+.badge-failed {
+    background: #ffe7e5;
+    color: #a71922;
+}
+
+.badge-uploaded {
+    background: #ece9ff;
+    color: #4a39bb;
+}
+
+.badge-admin {
+    background: #e6e0ff;
+    color: #402bb6;
+}
+
+.badge-employee {
+    background: #e7ecff;
+    color: #3947a6;
+}
+
+.badge-student {
+    background: #def8f2;
+    color: #006b5c;
+}
+
+.document-row {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 13px;
+    padding: 14px 16px;
+    margin-bottom: 9px;
+}
+
+.source-card {
+    background: #faf8ff;
+    border: 1px solid var(--border);
+    border-radius: 11px;
+    padding: 11px 13px;
+    margin: 6px 0;
+}
+
+.chat-user {
+    background: #eeeaff;
+    border-radius: 14px 14px 4px 14px;
+    padding: 13px 16px;
+    margin: 12px 0 8px auto;
+    max-width: 85%;
+}
+
+.chat-ai {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 14px 14px 14px 4px;
+    padding: 16px;
+    margin: 8px 0 14px 0;
+    max-width: 92%;
+    box-shadow: 0 4px 18px rgba(39,25,90,.04);
+}
+
+.small-muted {
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.auth-card {
+    max-width: 540px;
+    margin: 8vh auto 0 auto;
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 22px;
+    padding: 34px;
+    box-shadow: 0 20px 70px rgba(39,25,90,.10);
+}
+
+.login-logo {
+    width: 58px;
+    height: 58px;
+    border-radius: 17px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--primary), #8d5bff);
+    color: white;
+    font-size: 28px;
+    box-shadow: 0 10px 25px rgba(83,62,229,.22);
+}
+
+.section-title {
+    margin-top: 10px;
+    margin-bottom: 8px;
+}
+
+.guide-step {
+    background: white;
+    border: 1px solid var(--border);
+    border-radius: 13px;
+    padding: 15px;
+    margin: 8px 0;
+}
+
+.status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: white;
+    border: 1px solid var(--border);
+    font-size: 11px;
+    font-weight: 600;
+}
+
+.online-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #00a88f;
+    box-shadow: 0 0 0 4px rgba(0,168,143,.12);
+}
+
+.offline-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #d64545;
+    box-shadow: 0 0 0 4px rgba(214,69,69,.12);
+}
+
+div[data-testid="stFileUploader"] {
+    background: #f6f3ff;
+    border: 1px dashed #b7a9ec;
+    border-radius: 14px;
+    padding: 8px;
+}
+
+div[data-testid="stTextInput"] input,
+div[data-testid="stTextArea"] textarea {
+    border-radius: 10px;
+}
+
+@media (max-width: 900px) {
+    .block-container {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+    .hero {
+        padding: 24px;
+    }
+}
 </style>
-""", unsafe_allow_html=True)
-
-# ============================================================ STATE
-DEFAULTS = {"token": None, "user": None, "messages": [], "otp_requested": False, "guide_result": None}
-for k, v in DEFAULTS.items():
-    st.session_state.setdefault(k, v)
-
-PAGES = ["🏠 Dashboard", "📄 Documents", "💬 AI Chat", "🧭 AI Guide", "📜 History"]
-ADMIN_PAGE = "⚙️ Admin Dashboard"
-st.session_state.setdefault("nav", PAGES[0])
+""",
+    unsafe_allow_html=True,
+)
 
 
-def go(page):
-    st.session_state.nav = page
+# ============================================================
+# HELPERS
+# ============================================================
+
+def user_data() -> Dict[str, Any]:
+    return st.session_state.user or {}
 
 
-# ============================================================ API
-def call(method, path, **kw):
+def current_role() -> str:
+    return str(
+        user_data().get("role")
+        or user_data().get("user_role")
+        or "EMPLOYEE"
+    ).upper()
+
+
+def current_name() -> str:
+    return (
+        user_data().get("name")
+        or user_data().get("full_name")
+        or user_data().get("username")
+        or "User"
+    )
+
+
+def current_email() -> str:
+    return str(user_data().get("email") or "")
+
+
+def auth_headers() -> Dict[str, str]:
     headers = {"Accept": "application/json"}
+
     if st.session_state.token:
-        headers["Authorization"] = f"Bearer {st.session_state.token}"
-    try:
-        return requests.request(method, f"{API}{path}", headers=headers, timeout=TIMEOUT, **kw)
-    except requests.RequestException:
+        headers["Authorization"] = (
+            f"Bearer {st.session_state.token}"
+        )
+
+    return headers
+
+
+def parse_response(response: Optional[requests.Response]) -> Any:
+    if response is None:
         return None
 
-
-def err(resp, default):
     try:
-        return str(resp.json().get("detail", default))
-    except Exception:
-        return default
-
-
-def backend_online():
-    r = call("get", "/api/v1/health")
-    return r is not None and r.status_code == 200
-
-
-def jwt_claims(token):
-    try:
-        p = token.split(".")[1]
-        return json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4)))
+        return response.json()
     except Exception:
         return {}
 
 
-def start_session(data):
-    """Store token and build a complete user profile (fixes the 'User' placeholder)."""
-    st.session_state.token = data.get("access_token") or data.get("token")
-    user = dict(data.get("user") or data.get("data") or {})
-    if not (user.get("name") or user.get("full_name")):
-        r = call("get", "/api/v1/auth/me")
-        if r is not None and r.status_code == 200:
-            try:
-                user.update(r.json())
-            except Exception:
-                pass
-    claims = jwt_claims(st.session_state.token or "")
-    sub = str(claims.get("sub", ""))
-    user["email"] = user.get("email") or claims.get("email") or (sub if "@" in sub else "")
-    user["role"] = user.get("role") or claims.get("role") or "EMPLOYEE"
-    user["name"] = (user.get("name") or user.get("full_name") or claims.get("name")
-                    or (user["email"].split("@")[0].replace(".", " ").title() if user["email"] else "User"))
-    st.session_state.user = user
-
-
-def auth_request(path, payload, fail_msg):
-    r = call("post", path, json=payload)
-    if r is None:
-        st.error("Authentication service is offline. Start the FastAPI backend and retry.")
-        return None
-    if r.status_code not in (200, 201):
-        st.error(err(r, fail_msg))
-        return None
-    return r
-
-
-def load_documents():
-    r = call("get", "/api/v1/documents")
-    if r is None or r.status_code != 200:
-        return []
+def api_get(endpoint: str, params: Optional[Dict[str, Any]] = None):
     try:
-        d = r.json()
-        return d if isinstance(d, list) else d.get("documents", d.get("data", []))
-    except Exception:
+        return requests.get(
+            f"{API_BASE_URL}{endpoint}",
+            headers=auth_headers(),
+            params=params,
+            timeout=REQUEST_TIMEOUT,
+        )
+    except requests.RequestException:
+        return None
+
+
+def api_post(
+    endpoint: str,
+    json_data: Optional[Dict[str, Any]] = None,
+    files=None,
+):
+    try:
+        return requests.post(
+            f"{API_BASE_URL}{endpoint}",
+            headers=auth_headers(),
+            json=json_data if files is None else None,
+            files=files,
+            timeout=REQUEST_TIMEOUT,
+        )
+    except requests.RequestException:
+        return None
+
+
+def api_delete(endpoint: str):
+    try:
+        return requests.delete(
+            f"{API_BASE_URL}{endpoint}",
+            headers=auth_headers(),
+            timeout=REQUEST_TIMEOUT,
+        )
+    except requests.RequestException:
+        return None
+
+
+def error_message(response: Optional[requests.Response], fallback: str) -> str:
+    if response is None:
+        return fallback
+
+    data = parse_response(response)
+
+    if isinstance(data, dict):
+        detail = data.get("detail")
+        if isinstance(detail, str):
+            return detail
+
+        message = data.get("message")
+        if isinstance(message, str):
+            return message
+
+    return fallback
+
+
+def normalize_documents(payload: Any) -> List[Dict[str, Any]]:
+    if isinstance(payload, list):
+        return payload
+
+    if isinstance(payload, dict):
+        for key in ("documents", "data", "items", "results"):
+            if isinstance(payload.get(key), list):
+                return payload[key]
+
+    return []
+
+
+def document_id(doc: Dict[str, Any]) -> Optional[str]:
+    value = doc.get("id") or doc.get("document_id")
+    return str(value) if value is not None else None
+
+
+def document_name(doc: Dict[str, Any]) -> str:
+    return (
+        doc.get("filename")
+        or doc.get("file_name")
+        or doc.get("name")
+        or "Unnamed document"
+    )
+
+
+def document_status(doc: Dict[str, Any]) -> str:
+    return str(
+        doc.get("status")
+        or doc.get("processing_status")
+        or "UNKNOWN"
+    ).upper()
+
+
+def is_ready(doc: Dict[str, Any]) -> bool:
+    return document_status(doc) == "READY"
+
+
+def status_badge(status: str) -> str:
+    status = status.upper()
+
+    mapping = {
+        "READY": ("badge-ready", "● READY"),
+        "PROCESSING": ("badge-processing", "◐ PROCESSING"),
+        "FAILED": ("badge-failed", "● FAILED"),
+        "UPLOADED": ("badge-uploaded", "○ UPLOADED"),
+    }
+
+    css, label = mapping.get(
+        status,
+        ("badge-uploaded", f"○ {status}")
+    )
+
+    return f'<span class="badge {css}">{label}</span>'
+
+
+def role_badge(role: str) -> str:
+    role = role.upper()
+
+    css = {
+        "SUPER_ADMIN": "badge-admin",
+        "ADMIN": "badge-admin",
+        "EMPLOYEE": "badge-employee",
+        "STUDENT": "badge-student",
+    }.get(role, "badge-employee")
+
+    return f'<span class="badge {css}">{role}</span>'
+
+
+def load_documents(show_error: bool = False) -> List[Dict[str, Any]]:
+    response = api_get(ENDPOINTS["documents"])
+
+    if response is None:
+        if show_error:
+            st.error("Could not connect to the document service.")
         return []
 
+    if response.status_code != 200:
+        if show_error:
+            st.error(
+                error_message(
+                    response,
+                    "Unable to load documents."
+                )
+            )
+        return []
 
-def ask_ai(question, ids):
-    r = call("post", "/api/v1/chat/ask", json={"question": question, "document_ids": ids})
-    if r is None:
-        return None
-    if r.status_code != 200:
-        return {"error": err(r, "Unable to process the question.")}
-    return r.json()
-
-
-def did(d):
-    return d.get("id") or d.get("document_id")
-
-
-def status_of(d):
-    return str(d.get("status", "UNKNOWN")).upper()
+    docs = normalize_documents(parse_response(response))
+    st.session_state.documents = docs
+    return docs
 
 
-def answer_of(res):
-    return res.get("answer") or res.get("response") or res.get("message") or "No answer returned."
+def check_backend() -> bool:
+    response = api_get(ENDPOINTS["health"])
+
+    online = (
+        response is not None
+        and response.status_code == 200
+    )
+
+    st.session_state.backend_online = online
+    return online
 
 
-# ============================================================ UI HELPERS
-def hero(title, sub):
-    st.markdown(f'<div class="hero"><h1>{html.escape(title)}</h1><p>{html.escape(sub)}</p></div>', unsafe_allow_html=True)
+def logout():
+    for key, value in DEFAULT_STATE.items():
+        st.session_state[key] = value
+    st.rerun()
 
 
-def metric(icon, value, label):
-    return (f'<div class="metric"><div class="ico">{icon}</div>'
-            f'<div class="num">{value}</div><div class="lbl">{label}</div></div>')
+# ============================================================
+# AUTHENTICATION
+# ============================================================
+
+def perform_login(email: str, password: str) -> bool:
+    response = api_post(
+        ENDPOINTS["login"],
+        json_data={
+            "email": email,
+            "password": password,
+        },
+    )
+
+    if response is None:
+        st.error(
+            "Authentication service is offline. "
+            "Start FastAPI first."
+        )
+        return False
+
+    if response.status_code not in (200, 201):
+        st.error(
+            error_message(
+                response,
+                "Invalid email or password."
+            )
+        )
+        return False
+
+    data = parse_response(response)
+
+    if not isinstance(data, dict):
+        st.error("Invalid authentication response.")
+        return False
+
+    st.session_state.token = (
+        data.get("access_token")
+        or data.get("token")
+        or data.get("jwt")
+    )
+
+    st.session_state.user = (
+        data.get("user")
+        or data.get("data")
+        or {}
+    )
+
+    if not st.session_state.token:
+        st.error(
+            "Login succeeded but no access token was returned."
+        )
+        return False
+
+    return True
 
 
-def pill(status):
-    cls, label = {"READY": ("p-ready", "Ready"), "PROCESSING": ("p-proc", "Processing"),
-                  "FAILED": ("p-fail", "Failed")}.get(status, ("p-other", status.title()))
-    return f'<span class="pill {cls}">{label}</span>'
+def request_otp(email: str) -> bool:
+    response = api_post(
+        ENDPOINTS["request_otp"],
+        json_data={"email": email},
+    )
+
+    if response is None:
+        st.error("Authentication service is offline.")
+        return False
+
+    if response.status_code not in (200, 201):
+        st.error(
+            error_message(
+                response,
+                "Unable to send OTP."
+            )
+        )
+        return False
+
+    st.session_state.otp_requested = True
+    return True
 
 
-def empty(title, text):
-    st.markdown(f'<div class="empty"><b>{title}</b>{text}</div>', unsafe_allow_html=True)
+def verify_otp(email: str, otp: str) -> bool:
+    response = api_post(
+        ENDPOINTS["verify_otp"],
+        json_data={
+            "email": email,
+            "otp": otp,
+        },
+    )
+
+    if response is None:
+        st.error("Authentication service is offline.")
+        return False
+
+    if response.status_code not in (200, 201):
+        st.error(
+            error_message(
+                response,
+                "Invalid or expired OTP."
+            )
+        )
+        return False
+
+    data = parse_response(response)
+
+    st.session_state.token = (
+        data.get("access_token")
+        or data.get("token")
+        or data.get("jwt")
+    )
+
+    st.session_state.user = (
+        data.get("user")
+        or data.get("data")
+        or {}
+    )
+
+    return bool(st.session_state.token)
 
 
-def show_sources(sources):
-    if not sources:
-        return
-    with st.expander(f"📚 {len(sources)} source(s) used"):
-        for s in sources:
-            if isinstance(s, dict):
-                pg = s.get("page_number")
-                st.markdown(f"📄 **{s.get('filename', 'Document')}**" + (f" · page {pg}" if pg else ""))
-            else:
-                st.markdown(f"📄 {s}")
+def register(
+    name: str,
+    email: str,
+    password: str,
+    role: str,
+) -> bool:
+    response = api_post(
+        ENDPOINTS["register"],
+        json_data={
+            "name": name,
+            "email": email,
+            "password": password,
+            "role": role,
+        },
+    )
+
+    if response is None:
+        st.error("Authentication service is offline.")
+        return False
+
+    if response.status_code not in (200, 201):
+        st.error(
+            error_message(
+                response,
+                "Registration failed."
+            )
+        )
+        return False
+
+    return True
 
 
-# ============================================================ AUTH
-def auth_page():
-    left, right = st.columns([1.15, 1], gap="large")
-    online = backend_online()
-    with left:
-        st.markdown(f"""
-        <div style="padding-top:40px">
-          <div class="brand" style="font-size:22px">🤖 Enterprise AI</div>
-          <h1 style="font-size:50px;font-weight:800;line-height:1.08;margin:26px 0 14px;
-            background:linear-gradient(120deg,#6d5bff,#ff6b6b 60%,#00c2a8);-webkit-background-clip:text;-webkit-text-fill-color:transparent">
-            Answers from your company's documents, in seconds.</h1>
-          <p style="color:var(--mut);font-size:17px;max-width:520px">Upload your policies, handbooks and reports.
-            Ask a question and get a sourced answer, with access limited to what you are allowed to see.</p>
-          <div class="bullet"><i>🔒</i><div><b>Role-based access</b><span>Every answer respects document permissions.</span></div></div>
-          <div class="bullet"><i>📚</i><div><b>Cited answers</b><span>See the exact file and page behind each response.</span></div></div>
-          <div class="bullet"><i>⚡</i><div><b>Ready in minutes</b><span>Drop in PDFs and start asking right away.</span></div></div>
-          <span class="status"><span class="dot" style="background:{'#0a9b6f' if online else '#e0455a'}"></span>
-            {'Backend online' if online else 'Backend offline'}</span>
-        </div>""", unsafe_allow_html=True)
-        if not online:
-            st.code("uvicorn app.main:app --reload", language="powershell")
+def authentication_page():
+    st.markdown(
+        """
+        <div class="auth-card">
+            <div class="login-logo">✦</div>
+            <h1 style="margin-top:18px;">Enterprise AI</h1>
+            <p>
+                Secure knowledge and document intelligence
+                for enterprise teams.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    with right:
-        with st.container(border=True):
-            st.markdown("### Welcome back")
-            st.caption("Sign in to your workspace")
-            t_pw, t_otp, t_reg = st.tabs(["Password", "Email code", "Register"])
+    online = check_backend()
 
-            with t_pw:
-                email = st.text_input("Email", key="login_email")
-                pw = st.text_input("Password", type="password", key="login_password")
-                if st.button("Sign in", type="primary", use_container_width=True):
-                    if not email or not pw:
-                        st.warning("Enter your email and password.")
-                    else:
-                        r = auth_request("/api/v1/auth/login", {"email": email, "password": pw}, "Invalid email or password.")
-                        if r is not None:
-                            start_session(r.json())
-                            st.rerun()
+    if online:
+        st.success("FastAPI backend is online.")
+    else:
+        st.error(
+            "API Offline — start the FastAPI backend."
+        )
+        st.code(
+            "uvicorn app.main:app --reload",
+            language="powershell",
+        )
 
-            with t_otp:
-                email = st.text_input("Email", key="otp_email")
-                if not st.session_state.otp_requested:
-                    if st.button("Send code", use_container_width=True):
-                        if not email:
-                            st.warning("Enter your email.")
-                        elif auth_request("/api/v1/auth/request-otp", {"email": email}, "Unable to send the code."):
-                            st.session_state.otp_requested = True
-                            st.rerun()
-                else:
-                    st.success("Code sent. Check your inbox.")
-                    otp = st.text_input("6-digit code", max_chars=6, key="otp_value")
-                    if st.button("Verify and sign in", type="primary", use_container_width=True):
-                        r = auth_request("/api/v1/auth/verify-otp", {"email": email, "otp": otp}, "Invalid or expired code.")
-                        if r is not None:
-                            st.session_state.otp_requested = False
-                            start_session(r.json())
-                            st.rerun()
-                    if st.button("Send a new code"):
-                        auth_request("/api/v1/auth/request-otp", {"email": email}, "Unable to send the code.")
+    st.markdown("### Sign in to continue")
 
-            with t_reg:
-                name = st.text_input("Full name", key="register_name")
-                email = st.text_input("Email", key="register_email")
-                pw = st.text_input("Password", type="password", key="register_password")
-                role = st.selectbox("Account type", ["EMPLOYEE", "STUDENT"])
-                if st.button("Create account", type="primary", use_container_width=True):
-                    if not (name and email and pw):
-                        st.warning("Complete all fields.")
-                    elif auth_request("/api/v1/auth/register",
-                                      {"name": name, "email": email, "password": pw, "role": role}, "Registration failed."):
-                        st.success("Account created. Switch to the Password tab to sign in.")
+    password_tab, otp_tab, register_tab = st.tabs(
+        ["Password", "Email OTP", "Create account"]
+    )
+
+    with password_tab:
+        email = st.text_input(
+            "Work / student email",
+            key="login_email",
+        )
+
+        password = st.text_input(
+            "Password",
+            type="password",
+            key="login_password",
+        )
+
+        if st.button(
+            "Sign in",
+            type="primary",
+            use_container_width=True,
+        ):
+            if not email or not password:
+                st.warning(
+                    "Enter both email and password."
+                )
+            elif perform_login(email, password):
+                st.success("Signed in successfully.")
+                st.rerun()
+
+    with otp_tab:
+        email = st.text_input(
+            "Email",
+            key="otp_email",
+        )
+
+        if not st.session_state.otp_requested:
+            if st.button(
+                "Send OTP",
+                use_container_width=True,
+            ):
+                if not email:
+                    st.warning("Enter your email.")
+                elif request_otp(email):
+                    st.success(
+                        "OTP sent. Check your email."
+                    )
+                    st.rerun()
+        else:
+            otp = st.text_input(
+                "6-digit OTP",
+                max_chars=6,
+                key="otp_value",
+            )
+
+            if st.button(
+                "Verify OTP",
+                type="primary",
+                use_container_width=True,
+            ):
+                if not otp:
+                    st.warning("Enter the OTP.")
+                elif verify_otp(email, otp):
+                    st.success("OTP verified.")
+                    st.session_state.otp_requested = False
+                    st.rerun()
+
+            if st.button("Send OTP again"):
+                request_otp(email)
+
+    with register_tab:
+        name = st.text_input(
+            "Full name",
+            key="register_name",
+        )
+
+        email = st.text_input(
+            "Email",
+            key="register_email",
+        )
+
+        password = st.text_input(
+            "Password",
+            type="password",
+            key="register_password",
+        )
+
+        role = st.selectbox(
+            "Account type",
+            ["EMPLOYEE", "STUDENT"],
+            key="register_role",
+        )
+
+        if st.button(
+            "Create account",
+            type="primary",
+            use_container_width=True,
+        ):
+            if not all([name, email, password]):
+                st.warning("Complete all fields.")
+            elif register(name, email, password, role):
+                st.success(
+                    "Account created. Please sign in."
+                )
 
 
-# ============================================================ SIDEBAR
+# ============================================================
+# SIDEBAR
+# ============================================================
+
 def sidebar():
-    u = st.session_state.user or {}
-    role = str(u.get("role", "EMPLOYEE")).upper()
-    is_admin = role in ("ADMIN", "SUPER_ADMIN")
-    cls = "admin" if is_admin else "student" if role == "STUDENT" else ""
+    role = current_role()
+
     with st.sidebar:
-        st.markdown('<div class="brand">🤖 Enterprise AI<span>Knowledge &amp; Document Intelligence</span></div>', unsafe_allow_html=True)
-        st.write("")
-        st.markdown(f"""<div style="display:flex;gap:12px;align-items:center;padding:14px;border:1px solid var(--line);
-            border-radius:16px;background:var(--card)"><div class="avatar">{html.escape(u.get('name', 'U')[:1].upper())}</div>
-            <div style="min-width:0"><b>{html.escape(u.get('name', 'User'))}</b>
-            <div style="color:var(--mut);font-size:12px;overflow:hidden;text-overflow:ellipsis">{html.escape(u.get('email', ''))}</div>
-            <span class="role {cls}" style="margin-top:6px">{role.replace('_', ' ').title()}</span></div></div>""",
-                    unsafe_allow_html=True)
-        st.write("")
-        st.radio("Navigation", PAGES + ([ADMIN_PAGE] if is_admin else []), key="nav", label_visibility="collapsed")
+        st.markdown(
+            """
+            <div style="
+                display:flex;
+                align-items:center;
+                gap:10px;
+                padding:8px 4px 14px 4px;
+            ">
+                <div style="
+                    width:36px;
+                    height:36px;
+                    border-radius:11px;
+                    display:flex;
+                    align-items:center;
+                    justify-content:center;
+                    color:white;
+                    font-size:20px;
+                    background:linear-gradient(135deg,#533ee5,#8d5bff);
+                ">✦</div>
+                <div>
+                    <div style="font-weight:800;">Enterprise AI</div>
+                    <div style="font-size:11px;color:#6c687b;">
+                        Knowledge & Document Intelligence
+                    </div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(
+            f"""
+            <div class="enterprise-card" style="padding:13px;">
+                <div style="font-weight:700;">
+                    {current_name()}
+                </div>
+                <div class="small-muted">
+                    {current_email()}
+                </div>
+                <div style="margin-top:8px;">
+                    {role_badge(role)}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        st.markdown("### Workspace")
+
+        pages = [
+            "Dashboard",
+            "Documents",
+            "AI Chat",
+            "AI Guide",
+            "History",
+        ]
+
+        if role in ("ADMIN", "SUPER_ADMIN"):
+            pages.append("Admin Dashboard")
+
+        selected = st.radio(
+            "Navigation",
+            pages,
+            index=pages.index(
+                st.session_state.page
+            ) if st.session_state.page in pages else 0,
+            label_visibility="collapsed",
+        )
+
+        st.session_state.page = selected
+
         st.divider()
-        if st.button("Sign out", use_container_width=True):
-            st.session_state.clear()
+
+        online = check_backend()
+
+        if online:
+            st.markdown(
+                """
+                <div class="status-pill">
+                    <span class="online-dot"></span>
+                    Backend online
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                """
+                <div class="status-pill">
+                    <span class="offline-dot"></span>
+                    Backend offline
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        st.caption(API_BASE_URL)
+
+        if st.button(
+            "Sign out",
+            use_container_width=True,
+        ):
+            logout()
+
+
+# ============================================================
+# HEADER
+# ============================================================
+
+def top_header():
+    col1, col2 = st.columns([6, 1])
+
+    with col1:
+        st.text_input(
+            "Search",
+            placeholder=(
+                "Search documents, citations, insights..."
+            ),
+            label_visibility="collapsed",
+        )
+
+    with col2:
+        st.markdown(
+            f"""
+            <div style="
+                text-align:right;
+                padding-top:9px;
+            ">
+                {role_badge(current_role())}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+# ============================================================
+# DASHBOARD
+# ============================================================
+
+def dashboard_page():
+    docs = load_documents()
+
+    ready = sum(
+        1 for d in docs if is_ready(d)
+    )
+    processing = sum(
+        1 for d in docs
+        if document_status(d) == "PROCESSING"
+    )
+    failed = sum(
+        1 for d in docs
+        if document_status(d) == "FAILED"
+    )
+
+    st.markdown(
+        f"""
+        <div class="hero">
+            <div style="position:relative;z-index:2;max-width:720px;">
+                <div class="badge"
+                     style="background:rgba(255,255,255,.15);color:white;">
+                    ✦ KNOWLEDGE VECTOR ENGINE
+                </div>
+                <h1 style="font-size:34px;margin:15px 0 5px;">
+                    Welcome back, {current_name()}
+                </h1>
+                <p style="font-size:16px;line-height:1.6;">
+                    Upload documents, select your authorized knowledge
+                    sources, ask questions and receive grounded answers
+                    with citations.
+                </p>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("###")
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    metrics = [
+        ("Documents", len(docs)),
+        ("Ready", ready),
+        ("Processing", processing),
+        ("Failed", failed),
+    ]
+
+    for col, (label, value) in zip(
+        [c1, c2, c3, c4],
+        metrics,
+    ):
+        with col:
+            st.markdown(
+                f"""
+                <div class="metric">
+                    <div class="metric-value">{value}</div>
+                    <div class="metric-label">{label}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    st.markdown("### Quick Actions")
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        if st.button(
+            "📄 Upload documents",
+            use_container_width=True,
+        ):
+            st.session_state.page = "Documents"
             st.rerun()
 
+    with c2:
+        if st.button(
+            "💬 New AI query",
+            use_container_width=True,
+        ):
+            st.session_state.page = "AI Chat"
+            st.rerun()
 
-# ============================================================ PAGES
-def dashboard_page():
-    u = st.session_state.user or {}
-    first = str(u.get("name", "there")).split()[0]
-    hero(f"Welcome back, {first}", "Upload documents, ask questions and get answers with sources, all in one secure workspace.")
-    docs = load_documents()
-    ready = sum(status_of(d) == "READY" for d in docs)
-    busy = sum(status_of(d) == "PROCESSING" for d in docs)
-    for col, (i, v, l) in zip(st.columns(4), [("📄", len(docs), "Documents"), ("✅", ready, "Ready to query"),
-                                              ("⏳", busy, "Processing"), ("💬", len(st.session_state.messages), "Questions asked")]):
-        col.markdown(metric(i, v, l), unsafe_allow_html=True)
+    with c3:
+        if st.button(
+            "🧭 Open AI Guide",
+            use_container_width=True,
+        ):
+            st.session_state.page = "AI Guide"
+            st.rerun()
 
-    st.markdown("### Get started")
-    cards = [("📄 Upload documents", "Add PDFs and we index them for search.", "Upload documents", "📄 Documents"),
-             ("💬 Ask your documents", "Get direct answers with page-level sources.", "Start chatting", "💬 AI Chat"),
-             ("🧭 Get guided", "Walk through processes and policies step by step.", "Open AI Guide", "🧭 AI Guide")]
-    for col, (t, d, btn, page) in zip(st.columns(3), cards):
-        with col:
-            st.markdown(f'<div class="feature"><h4>{t}</h4><p>{d}</p></div>', unsafe_allow_html=True)
-            st.button(btn, key=f"qa_{page}", use_container_width=True, on_click=go, args=(page,))
+    st.markdown("### Recent Documents")
 
-    if docs:
-        st.markdown("### Recent documents")
-        for d in docs[:4]:
-            st.markdown(f'<div class="doc"><span class="name">📄 {html.escape(d.get("filename", "Document"))}</span>'
-                        f'{pill(status_of(d))}</div>', unsafe_allow_html=True)
-
-
-@st.fragment(run_every="5s")
-def document_list():
-    docs = load_documents()
-    st.markdown("### Your documents")
     if not docs:
-        empty("No documents yet", "Upload your first PDF above to get started.")
+        st.info(
+            "No documents yet. Upload your first PDF."
+        )
         return
-    for d in docs:
-        c1, c2 = st.columns([8, 1.3], vertical_alignment="center")
-        status, pages = status_of(d), d.get("page_count")
-        extra = f'<span class="meta">{pages} pages</span>' if pages else ""
-        errmsg = f'<div class="meta" style="color:#e0455a">{html.escape(str(d.get("error_message")))}</div>' \
-            if status == "FAILED" and d.get("error_message") else ""
-        c1.markdown(f'<div class="doc"><div class="name">📄 {html.escape(d.get("filename", "Unknown document"))}{errmsg}</div>'
-                    f'{extra}{pill(status)}</div>', unsafe_allow_html=True)
-        if did(d) and c2.button("Delete", key=f"del_{did(d)}", use_container_width=True):
-            r = call("delete", f"/api/v1/documents/{did(d)}")
-            if r is not None and r.status_code in (200, 204):
-                st.rerun()
-            else:
-                st.error("You are not authorized to delete this document.")
+
+    for doc in docs[:5]:
+        st.markdown(
+            f"""
+            <div class="document-row">
+                <div style="
+                    display:flex;
+                    justify-content:space-between;
+                    align-items:center;
+                    gap:12px;
+                ">
+                    <div>
+                        <strong>📄 {document_name(doc)}</strong>
+                        <div class="small-muted">
+                            {doc.get("page_count", "—")} pages
+                        </div>
+                    </div>
+                    {status_badge(document_status(doc))}
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+# ============================================================
+# DOCUMENTS
+# ============================================================
+
+def upload_documents(files) -> bool:
+    if not files:
+        return False
+
+    multipart = [
+        (
+            "files",
+            (
+                file.name,
+                file.getvalue(),
+                "application/pdf",
+            ),
+        )
+        for file in files
+    ]
+
+    response = api_post(
+        ENDPOINTS["upload"],
+        files=multipart,
+    )
+
+    if response is None:
+        st.error(
+            "Document service is offline."
+        )
+        return False
+
+    if response.status_code not in (200, 201, 202):
+        st.error(
+            error_message(
+                response,
+                "Upload failed."
+            )
+        )
+        return False
+
+    return True
 
 
 def documents_page():
-    hero("Documents", "Upload PDFs to build your searchable knowledge base.")
-    files = st.file_uploader("Drag and drop PDF files here", type=["pdf"], accept_multiple_files=True)
+    st.markdown(
+        """
+        <div class="enterprise-card">
+            <div class="badge badge-uploaded">
+                🔐 SECURE DOCUMENT INGESTION
+            </div>
+            <h1 class="section-title">Documents</h1>
+            <p>
+                Upload PDFs to build your searchable enterprise
+                knowledge base. Multiple files are supported.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("### Ingest new documents")
+
+    files = st.file_uploader(
+        "Drop PDF files here",
+        type=["pdf"],
+        accept_multiple_files=True,
+        help="Upload one or multiple PDF documents.",
+    )
+
     if files:
-        st.caption(f"{len(files)} file(s) selected: " + ", ".join(f"{f.name} ({f.size / 1024:.0f} KB)" for f in files))
-        if st.button("Upload and index", type="primary", use_container_width=True):
-            with st.spinner("Uploading and processing..."):
-                r = call("post", "/api/v1/documents/upload",
-                         files=[("files", (f.name, f.getvalue(), "application/pdf")) for f in files])
-            if r is None:
-                st.error("Could not connect to the document service.")
-            elif r.status_code not in (200, 201, 202):
-                st.error(err(r, "Document upload failed."))
-            else:
-                st.toast(f"{len(files)} document(s) uploaded", icon="✅")
-                st.rerun()
-    document_list()
+        st.write(
+            f"**{len(files)} file(s) selected**"
+        )
 
+        for file in files:
+            st.caption(
+                f"📄 {file.name} · "
+                f"{file.size / 1024:.1f} KB"
+            )
 
-def chat_page():
-    hero("AI Document Chat", "Ask a question and get an answer grounded in your selected documents.")
-    docs = load_documents()
+        if st.button(
+            "🚀 Upload & Process",
+            type="primary",
+            use_container_width=True,
+        ):
+            with st.spinner(
+                "Uploading documents..."
+            ):
+                if upload_documents(files):
+                    st.success(
+                        "Upload accepted. Document processing has started."
+                    )
+                    st.session_state.page = "Documents"
+                    time.sleep(.5)
+                    st.rerun()
+
+    st.markdown("---")
+    st.markdown("### Your knowledge base")
+
+    docs = load_documents(
+        show_error=True
+    )
+
     if not docs:
-        empty("Nothing to search yet", "Upload at least one PDF, then come back to ask questions.")
+        st.info(
+            "No documents available."
+        )
         return
-    ready = {did(d): d for d in docs if status_of(d) == "READY" and did(d)}
-    if not ready:
-        st.warning("Your documents are still processing or have failed.")
-        return
-    st.session_state.setdefault("chat_docs", list(ready))
-    st.session_state.chat_docs = [i for i in st.session_state.chat_docs if i in ready]
-    selected = st.multiselect("Search in", list(ready), key="chat_docs",
-                              format_func=lambda i: ready[i].get("filename", "Document"))
 
-    if not st.session_state.messages:
-        empty("Ask your first question", "For example: What is our annual leave policy?")
-    for m in st.session_state.messages:
-        with st.chat_message("user"):
-            st.write(m["question"])
-        with st.chat_message("assistant", avatar="🤖"):
-            st.markdown(m["answer"])
-            show_sources(m.get("sources"))
+    ready = sum(
+        1 for d in docs if is_ready(d)
+    )
+    processing = sum(
+        1 for d in docs
+        if document_status(d) == "PROCESSING"
+    )
 
-    q = st.chat_input("Ask a question about your documents")
-    if q:
-        if not selected:
-            st.warning("Select at least one document.")
-            return
-        with st.spinner("Searching your documents..."):
-            res = ask_ai(q, selected)
-        if res is None:
-            st.error("Unable to connect to the AI backend.")
-        elif "error" in res:
-            st.error(res["error"])
-        else:
-            st.session_state.messages.append({"question": q, "answer": answer_of(res), "sources": res.get("sources", [])})
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+        st.metric("Total", len(docs))
+
+    with c2:
+        st.metric("Ready", ready)
+
+    with c3:
+        st.metric("Processing", processing)
+
+    for doc in docs:
+        did = document_id(doc)
+        name = document_name(doc)
+        status = document_status(doc)
+
+        c1, c2, c3 = st.columns([5, 1.5, 1])
+
+        with c1:
+            st.markdown(
+                f"""
+                <div class="document-row">
+                    <strong>📄 {name}</strong>
+                    <div style="margin-top:6px;">
+                        {status_badge(status)}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        with c2:
+            if status == "PROCESSING":
+                st.caption(
+                    "Indexing..."
+                )
+            elif status == "READY":
+                st.caption(
+                    f"{doc.get('chunk_count', '—')} chunks"
+                )
+            elif status == "FAILED":
+                st.caption(
+                    str(
+                        doc.get(
+                            "error_message",
+                            "Processing failed"
+                        )
+                    )[:80]
+                )
+
+        with c3:
+            if (
+                did
+                and status in ("READY", "FAILED")
+                and current_role() in (
+                    "ADMIN",
+                    "SUPER_ADMIN",
+                )
+            ):
+                if st.button(
+                    "Delete",
+                    key=f"delete_{did}",
+                ):
+                    response = api_delete(
+                        f"{ENDPOINTS['documents']}/{did}"
+                    )
+
+                    if response is not None and response.status_code in (200, 204):
+                        st.success("Deleted.")
+                        st.rerun()
+                    else:
+                        st.error(
+                            error_message(
+                                response,
+                                "Delete failed."
+                            )
+                        )
+
+    if processing:
+        st.info(
+            "Some documents are still being indexed. "
+            "They will become selectable in AI Chat once "
+            "their status changes to READY."
+        )
+
+        if st.button(
+            "↻ Refresh processing status",
+            use_container_width=True,
+        ):
             st.rerun()
 
 
-def guide_page():
-    hero("AI Guide", "Describe what you need to do and get step-by-step guidance from your company's documents.")
-    st.caption("Try one of these")
-    ideas = ["Guide me through employee onboarding", "How do I request leave?", "Summarize our security policy"]
-    for col, idea in zip(st.columns(3), ideas):
-        col.button(idea, key=f"idea_{idea}", use_container_width=True, on_click=lambda i=idea: st.session_state.update(guide_q=i))
-    question = st.text_area("What do you need help with?", key="guide_q", height=110,
-                            placeholder="Example: Guide me through the employee onboarding process.")
-    if st.button("Get guidance", type="primary", use_container_width=True):
-        if not question.strip():
-            st.warning("Tell the AI what you need help with.")
-            return
-        ids = [did(d) for d in load_documents() if status_of(d) == "READY" and did(d)]
-        with st.spinner("Analyzing your documents..."):
-            res = ask_ai(question, ids)
-        if res is None:
-            st.error("AI Guide could not connect to the backend.")
-        elif "error" in res:
-            st.error(res["error"])
-        else:
-            st.session_state.guide_result = res
-    res = st.session_state.guide_result
-    if res:
-        with st.container(border=True):
-            st.markdown("### 🧭 Guidance")
-            st.markdown(res.get("answer") or res.get("response") or "No guidance returned.")
-            show_sources(res.get("sources"))
+# ============================================================
+# DOCUMENT SELECTOR
+# ============================================================
 
+def document_selector() -> List[str]:
+    docs = load_documents()
+
+    ready_docs = [
+        d for d in docs
+        if is_ready(d) and document_id(d)
+    ]
+
+    processing_docs = [
+        d for d in docs
+        if document_status(d) == "PROCESSING"
+    ]
+
+    failed_docs = [
+        d for d in docs
+        if document_status(d) == "FAILED"
+    ]
+
+    if processing_docs:
+        st.warning(
+            f"{len(processing_docs)} document(s) are still processing."
+        )
+
+    if failed_docs:
+        st.error(
+            f"{len(failed_docs)} document(s) failed processing."
+        )
+
+    if not ready_docs:
+        st.info(
+            "No READY documents are available for AI search yet."
+        )
+        return []
+
+    options = {
+        document_name(d): document_id(d)
+        for d in ready_docs
+    }
+
+    names = list(options.keys())
+
+    st.markdown(
+        "### Select knowledge sources"
+    )
+
+    selected_names = st.multiselect(
+        "Only READY and authorized documents can be selected.",
+        names,
+        default=[
+            name
+            for name in names
+            if options[name] in st.session_state.selected_documents
+        ],
+        key="document_multiselect",
+    )
+
+    selected_ids = [
+        options[name]
+        for name in selected_names
+    ]
+
+    st.session_state.selected_documents = selected_ids
+
+    c1, c2 = st.columns(2)
+
+    with c1:
+        if st.button(
+            "Select all READY",
+            use_container_width=True,
+        ):
+            st.session_state.selected_documents = list(
+                options.values()
+            )
+            st.rerun()
+
+    with c2:
+        if st.button(
+            "Clear selection",
+            use_container_width=True,
+        ):
+            st.session_state.selected_documents = []
+            st.rerun()
+
+    st.caption(
+        f"{len(selected_ids)} of {len(ready_docs)} "
+        "READY documents selected."
+    )
+
+    return selected_ids
+
+
+# ============================================================
+# CHAT
+# ============================================================
+
+def ask_chat(
+    question: str,
+    document_ids: List[str],
+):
+    start = time.perf_counter()
+
+    response = api_post(
+        ENDPOINTS["chat"],
+        json_data={
+            "question": question,
+            "document_ids": document_ids,
+        },
+    )
+
+    latency = time.perf_counter() - start
+    st.session_state.last_latency = latency
+
+    if response is None:
+        return {
+            "error": "Unable to connect to the AI backend."
+        }
+
+    if response.status_code != 200:
+        return {
+            "error": error_message(
+                response,
+                "The AI service could not process your question."
+            )
+        }
+
+    data = parse_response(response)
+
+    if not isinstance(data, dict):
+        return {
+            "error": "Invalid AI response."
+        }
+
+    return data
+
+
+def render_sources(sources: Any):
+    if not sources:
+        return
+
+    st.markdown(
+        "**Sources**"
+    )
+
+    if not isinstance(sources, list):
+        sources = [sources]
+
+    for source in sources:
+        if isinstance(source, dict):
+            filename = (
+                source.get("filename")
+                or source.get("file_name")
+                or source.get("document")
+                or "Document"
+            )
+
+            page = (
+                source.get("page_number")
+                or source.get("page")
+            )
+
+            section = (
+                source.get("section")
+                or source.get("subsection")
+            )
+
+            details = f"📄 {filename}"
+
+            if page:
+                details += f" · Page {page}"
+
+            if section:
+                details += f" · {section}"
+
+            st.markdown(
+                f"""
+                <div class="source-card">
+                    {details}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        else:
+            st.markdown(
+                f"""
+                <div class="source-card">
+                    📄 {str(source)}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+
+def chat_page():
+    st.markdown(
+        """
+        <div class="enterprise-card">
+            <div class="badge badge-ready">
+                ✦ SEMANTIC KNOWLEDGE ENGINE
+            </div>
+            <h1 class="section-title">AI Document Chat</h1>
+            <p>
+                Ask complex questions and receive answers grounded
+                in your selected and authorized document collection.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    if st.session_state.last_latency is not None:
+        st.caption(
+            f"Last response: "
+            f"{st.session_state.last_latency:.2f}s"
+        )
+
+    selected_ids = document_selector()
+
+    if not selected_ids:
+        return
+
+    st.markdown("---")
+
+    for message in st.session_state.messages:
+        st.markdown(
+            f"""
+            <div class="chat-user">
+                <strong>👤 You</strong><br>
+                {message["question"]}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        st.markdown(
+            f"""
+            <div class="chat-ai">
+                <strong>🤖 Enterprise AI</strong><br><br>
+                {message["answer"]}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        render_sources(
+            message.get("sources")
+        )
+
+    question = st.chat_input(
+        "Ask a question about your selected documents..."
+    )
+
+    if question:
+        with st.spinner(
+            "Searching authorized documents and generating an answer..."
+        ):
+            result = ask_chat(
+                question,
+                selected_ids,
+            )
+
+        if "error" in result:
+            st.error(result["error"])
+            return
+
+        answer = (
+            result.get("answer")
+            or result.get("response")
+            or result.get("message")
+            or "No answer was returned."
+        )
+
+        sources = (
+            result.get("sources")
+            or result.get("citations")
+            or []
+        )
+
+        st.session_state.messages.append(
+            {
+                "question": question,
+                "answer": answer,
+                "sources": sources,
+                "document_ids": selected_ids,
+                "timestamp": time.time(),
+            }
+        )
+
+        st.session_state.history.append(
+            {
+                "question": question,
+                "answer": answer,
+                "sources": sources,
+                "document_ids": selected_ids,
+                "timestamp": time.time(),
+            }
+        )
+
+        st.rerun()
+
+    if st.session_state.messages:
+        if st.button(
+            "Reset chat",
+            use_container_width=True,
+        ):
+            st.session_state.messages = []
+            st.rerun()
+
+
+# ============================================================
+# AI GUIDE
+# ============================================================
+
+def ask_guide(
+    request: str,
+    document_ids: List[str],
+):
+    start = time.perf_counter()
+
+    response = api_post(
+        ENDPOINTS["guide"],
+        json_data={
+            "request": request,
+            "question": request,
+            "document_ids": document_ids,
+        },
+    )
+
+    st.session_state.last_latency = (
+        time.perf_counter() - start
+    )
+
+    if response is None:
+        return {
+            "error": "Unable to connect to the AI Guide backend."
+        }
+
+    if response.status_code != 200:
+        return {
+            "error": error_message(
+                response,
+                "AI Guide could not process your request."
+            )
+        }
+
+    data = parse_response(response)
+
+    return data if isinstance(data, dict) else {
+        "error": "Invalid AI Guide response."
+    }
+
+
+def guide_page():
+    st.markdown(
+        """
+        <div class="enterprise-card">
+            <div class="badge badge-ready">
+                ✦ AUTONOMOUS KNOWLEDGE GUIDE
+            </div>
+            <h1 class="section-title">AI Guide</h1>
+            <p>
+                Describe what you need to accomplish and the AI will
+                create step-by-step guidance grounded in your
+                authorized documents.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    selected_ids = document_selector()
+
+    if not selected_ids:
+        return
+
+    request = st.text_area(
+        "What do you need help with?",
+        placeholder=(
+            "Example: Guide me through the employee onboarding "
+            "process using the selected documents."
+        ),
+        height=130,
+    )
+
+    if st.button(
+        "🧭 Generate Guide",
+        type="primary",
+        use_container_width=True,
+    ):
+        if not request.strip():
+            st.warning(
+                "Describe what you need help with."
+            )
+            return
+
+        with st.spinner(
+            "AI Guide is analyzing the selected documents..."
+        ):
+            result = ask_guide(
+                request,
+                selected_ids,
+            )
+
+        if "error" in result:
+            st.error(result["error"])
+            return
+
+        answer = (
+            result.get("answer")
+            or result.get("guide")
+            or result.get("response")
+            or "No guidance was returned."
+        )
+
+        st.markdown("### 🧭 Guidance")
+
+        st.markdown(
+            f"""
+            <div class="enterprise-card">
+                {answer}
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        render_sources(
+            result.get("sources")
+            or result.get("citations")
+            or []
+        )
+
+
+# ============================================================
+# HISTORY
+# ============================================================
 
 def history_page():
-    hero("Conversation history", "Everything you have asked in this session.")
-    if not st.session_state.messages:
-        empty("No conversations yet", "Your questions and answers will appear here.")
-        return
-    for i, m in enumerate(reversed(st.session_state.messages), 1):
-        with st.expander(f"{i}. {m['question'][:70]}"):
-            st.markdown("**Question**")
-            st.write(m["question"])
-            st.markdown("**Answer**")
-            st.markdown(m["answer"])
-            show_sources(m.get("sources"))
+    st.markdown(
+        """
+        <div class="enterprise-card">
+            <div class="badge badge-uploaded">
+                ◷ CONVERSATION HISTORY
+            </div>
+            <h1 class="section-title">History</h1>
+            <p>
+                Review questions and answers from this session.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
+    if not st.session_state.history:
+        st.info(
+            "No conversation history in this session."
+        )
+        return
+
+    for index, item in enumerate(
+        reversed(st.session_state.history),
+        start=1,
+    ):
+        with st.expander(
+            f"{index}. {item['question'][:90]}"
+        ):
+            st.markdown("**Question**")
+            st.write(item["question"])
+
+            st.markdown("**Answer**")
+            st.write(item["answer"])
+
+            render_sources(
+                item.get("sources")
+            )
+
+
+# ============================================================
+# ADMIN DASHBOARD
+# ============================================================
 
 def admin_page():
-    if str((st.session_state.user or {}).get("role", "")).upper() not in ("ADMIN", "SUPER_ADMIN"):
-        st.error("You are not authorized to access the Admin Dashboard.")
+    if current_role() not in (
+        "ADMIN",
+        "SUPER_ADMIN",
+    ):
+        st.error(
+            "You are not authorized to access this page."
+        )
         return
-    hero("Admin dashboard", "Monitor document processing and system health.")
+
     docs = load_documents()
-    count = lambda s: sum(status_of(d) == s for d in docs)
-    for col, (i, v, l) in zip(st.columns(4), [("📄", len(docs), "Documents"), ("✅", count("READY"), "Ready"),
-                                              ("⏳", count("PROCESSING"), "Processing"), ("⚠️", count("FAILED"), "Failed")]):
-        col.markdown(metric(i, v, l), unsafe_allow_html=True)
+
+    ready = sum(
+        1 for d in docs if is_ready(d)
+    )
+    processing = sum(
+        1 for d in docs
+        if document_status(d) == "PROCESSING"
+    )
+    failed = sum(
+        1 for d in docs
+        if document_status(d) == "FAILED"
+    )
+
+    st.markdown(
+        """
+        <div class="enterprise-card">
+            <div class="badge badge-admin">
+                ⚙ ADMIN CONTROL CENTER
+            </div>
+            <h1 class="section-title">
+                Admin Dashboard
+            </h1>
+            <p>
+                Monitor knowledge ingestion and system status.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    for col, label, value in [
+        (c1, "Documents", len(docs)),
+        (c2, "Ready", ready),
+        (c3, "Processing", processing),
+        (c4, "Failed", failed),
+    ]:
+        with col:
+            st.metric(label, value)
+
     st.markdown("### System")
-    online = backend_online()
-    st.markdown(f'<span class="status"><span class="dot" style="background:{"#0a9b6f" if online else "#e0455a"}"></span>'
-                f'{"Backend online" if online else "Backend offline"} · {html.escape(API)}</span>', unsafe_allow_html=True)
+
+    if check_backend():
+        st.success(
+            f"FastAPI online · {API_BASE_URL}"
+        )
+    else:
+        st.error(
+            "FastAPI backend offline."
+        )
+
+    st.markdown("### Retrieval configuration")
+
+    st.info(
+        "The frontend sends selected document IDs to the backend. "
+        "The backend should enforce authorization, perform hybrid "
+        "retrieval, reranking, and source citation generation."
+    )
+
+    st.markdown(
+        """
+        **Recommended backend pipeline**
+
+        Query → authorization → vector retrieval + BM25 →
+        hybrid fusion → reranker → context → LLM → citations
+        """
+    )
 
 
-# ============================================================ MAIN
+# ============================================================
+# MAIN
+# ============================================================
+
 def main():
     if not st.session_state.token:
-        auth_page()
+        authentication_page()
         return
+
     sidebar()
-    {"🏠 Dashboard": dashboard_page, "📄 Documents": documents_page, "💬 AI Chat": chat_page,
-     "🧭 AI Guide": guide_page, "📜 History": history_page, ADMIN_PAGE: admin_page}.get(st.session_state.nav, dashboard_page)()
+    top_header()
+
+    st.divider()
+
+    page = st.session_state.page
+
+    if page == "Dashboard":
+        dashboard_page()
+
+    elif page == "Documents":
+        documents_page()
+
+    elif page == "AI Chat":
+        chat_page()
+
+    elif page == "AI Guide":
+        guide_page()
+
+    elif page == "History":
+        history_page()
+
+    elif page == "Admin Dashboard":
+        admin_page()
 
 
 if __name__ == "__main__":
