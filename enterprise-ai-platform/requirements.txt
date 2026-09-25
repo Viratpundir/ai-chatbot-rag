@@ -1,0 +1,105 @@
+# =============================================================
+# Enterprise AI Knowledge Platform — Python dependencies
+# =============================================================
+# Pin exact versions for reproducible builds.
+# Run: pip install -r requirements.txt
+
+# -------------------------------------------------------------
+# Web framework
+# -------------------------------------------------------------
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+python-multipart==0.0.12        # file uploads
+
+# -------------------------------------------------------------
+# Pydantic / Settings
+# -------------------------------------------------------------
+pydantic==2.10.3
+pydantic-settings>=2.10.1
+pydantic[email]==2.10.3
+
+# -------------------------------------------------------------
+# Database (Stage 2+)
+# -------------------------------------------------------------
+sqlalchemy==2.0.36
+asyncpg==0.30.0                 # async PostgreSQL driver
+aiosqlite==0.20.0              # local development database
+psycopg2-binary==2.9.10        # Alembic synchronous migration driver
+alembic==1.14.0                 # migrations
+
+# -------------------------------------------------------------
+# Redis (Stage 5+)
+# -------------------------------------------------------------
+redis==5.2.1
+celery==5.4.0                   # background workers (Stage 9)
+
+# -------------------------------------------------------------
+# Authentication & Security
+# -------------------------------------------------------------
+passlib[bcrypt]==1.7.4          # password hashing
+python-jose[cryptography]==3.3.0  # JWT
+bcrypt==4.2.1
+
+# -------------------------------------------------------------
+# LangChain core
+# -------------------------------------------------------------
+langchain==0.3.10
+langchain-core==0.3.22
+langchain-community==0.3.10
+langchain-text-splitters==0.3.2
+langchain-openai==0.2.11
+
+# -------------------------------------------------------------
+# LLM providers
+# -------------------------------------------------------------
+langchain-ollama==0.2.1             # preferred Ollama integration (langchain>=0.3.1)
+langchain-huggingface==0.1.2        # preferred HuggingFace embeddings (langchain>=0.2.2)
+ollama==0.4.4                       # Ollama Python client
+openai==1.57.2                      # OpenAI fallback
+
+# -------------------------------------------------------------
+# Embeddings & Vector store
+# -------------------------------------------------------------
+sentence-transformers==3.3.1
+faiss-cpu==1.9.0.post1
+numpy==2.1.3                    # Python 3.13-compatible wheel on Windows
+
+# -------------------------------------------------------------
+# Document loaders
+# -------------------------------------------------------------
+pypdf==5.1.0                    # PDF (replaces pypdf2)
+docx2txt==0.8                   # DOCX
+beautifulsoup4==4.12.3          # HTML loader
+lxml==5.3.0                     # HTML parser backend
+
+# -------------------------------------------------------------
+# Frontend
+# -------------------------------------------------------------
+streamlit==1.41.1
+requests==2.32.3                # frontend → backend HTTP
+
+# -------------------------------------------------------------
+# Email (Stage 4+)
+# -------------------------------------------------------------
+aiosmtplib==3.0.2               # async SMTP
+
+# -------------------------------------------------------------
+# Utilities
+# -------------------------------------------------------------
+python-dotenv==1.0.1
+httpx==0.27.2                   # async HTTP client compatible with Ollama
+tenacity==9.0.0                 # retry logic
+python-slugify==8.0.4
+rank-bm25==0.2.2               # lexical retrieval over authorized chunks
+
+# -------------------------------------------------------------
+# Observability (Stage 17+)
+# -------------------------------------------------------------
+prometheus-client==0.21.1
+
+# -------------------------------------------------------------
+# Testing
+# -------------------------------------------------------------
+pytest==8.3.4
+pytest-asyncio==0.24.0
+httpx==0.27.2                   # async test client

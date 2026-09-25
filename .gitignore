@@ -1,0 +1,17 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.streamlit/
+
+# Local runtime data and generated vector indexes
+data/*.faiss
+data/*.pkl
+data/*.index
+enterprise-ai-platform/data/*.db
+enterprise-ai-platform/data/uploads/
+enterprise-ai-platform/data/vector_store/**/*.faiss
+enterprise-ai-platform/data/vector_store/**/*.pkl
+enterprise-ai-platform/data/vector_store/**/*.index
