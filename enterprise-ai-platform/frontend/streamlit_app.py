@@ -270,13 +270,71 @@ div[data-baseweb="select"]>div{
   background:#efedff;color:#5148c9
 }
 section[data-testid="stSidebar"] [role="radiogroup"] label{
-  padding:9px 12px;border-radius:10px;margin-bottom:2px;transition:.15s
+  padding:9px 12px;
+  border-radius:10px;
+  margin-bottom:2px;
+  transition:.15s;
+  color:#3c4043 !important;
+  background:transparent !important;
 }
-section[data-testid="stSidebar"] [role="radiogroup"] label:hover{background:#f1f3f4}
+section[data-testid="stSidebar"] [role="radiogroup"] label *,
+section[data-testid="stSidebar"] [role="radiogroup"] label p,
+section[data-testid="stSidebar"] [role="radiogroup"] label span,
+section[data-testid="stSidebar"] [role="radiogroup"] label div{
+  color:#3c4043 !important;
+}
+section[data-testid="stSidebar"] [role="radiogroup"] label:hover{
+  background:#f1f3f4 !important;
+  color:#202124 !important;
+}
 section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked){
-  background:#efedff;color:#5148c9;font-weight:700
+  background:#eeebff !important;
+  color:#4f46d8 !important;
+  font-weight:700;
+}
+section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) *,
+section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) p,
+section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) span,
+section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) div{
+  color:#4f46d8 !important;
 }
 section[data-testid="stSidebar"] [role="radiogroup"] label>div:first-child{display:none}
+
+/* Force readable text throughout the light enterprise sidebar. */
+section[data-testid="stSidebar"] *,
+section[data-testid="stSidebar"] .stMarkdown,
+section[data-testid="stSidebar"] .stCaption,
+section[data-testid="stSidebar"] [data-testid="stWidgetLabel"]{
+  color:#3c4043;
+}
+section[data-testid="stSidebar"] .stCaption,
+section[data-testid="stSidebar"] small{
+  color:#70757a !important;
+}
+section[data-testid="stSidebar"] hr{
+  border-color:#e5e7eb !important;
+}
+
+/* Global readability fixes for the light theme. */
+.stMarkdown, .stCaption, label, [data-testid="stWidgetLabel"]{
+  color:#3c4043 !important;
+}
+.stCaption{
+  color:#70757a !important;
+}
+.stAlert p, .stAlert div{
+  color:inherit !important;
+}
+.stSelectbox label, .stMultiSelect label, .stTextInput label,
+.stTextArea label, .stFileUploader label{
+  color:#3c4043 !important;
+}
+div[data-baseweb="select"] *{
+  color:#202124 !important;
+}
+div[data-baseweb="select"] [aria-selected="true"]{
+  color:#202124 !important;
+}
 
 /* Auth */
 .auth-shell{
@@ -535,7 +593,7 @@ def sidebar():
         st.markdown(f"""<div style="display:flex;gap:12px;align-items:center;padding:14px;border:1px solid var(--line);
             border-radius:16px;background:var(--card)"><div class="avatar">{html.escape(u.get('name', 'U')[:1].upper())}</div>
             <div style="min-width:0"><b>{html.escape(u.get('name', 'User'))}</b>
-            <div style="color:#7b8190;font-size:12px;overflow:hidden;text-overflow:ellipsis">{html.escape(u.get('email', ''))}</div>
+            <div style="color:#70757a !important;font-size:12px;overflow:hidden;text-overflow:ellipsis">{html.escape(u.get('email', ''))}</div>
             <span class="role {cls}" style="margin-top:6px">{role.replace('_', ' ').title()}</span></div></div>""",
                     unsafe_allow_html=True)
         st.write("")
