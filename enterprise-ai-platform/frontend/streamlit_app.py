@@ -37,7 +37,7 @@ NAV_ICONS = {
     "AI Guide": "explore", "History": "history", ADMIN_PAGE: "tune",
 }
 
-st.set_page_config(page_title="Enterprise AI", page_icon="✨", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Enterprise AI", page_icon="✨", layout="wide", initial_sidebar_state="auto")
 
 SESSION_DEFAULTS = {
     "token": None, "refresh_token": None, "user": None, "messages": [],
@@ -73,6 +73,13 @@ try {
 def go(page: str) -> None:
     """Navigate to a page (used as a button on_click callback)."""
     st.session_state.nav = page
+    st.session_state["navigation_selection"] = page
+
+
+def ask_about_document(document_id: str) -> None:
+    st.session_state.chat_docs = [document_id]
+    st.session_state[f"chatdoc_{document_id}"] = True
+    go("AI Chat")
 
 
 # ============================================================================
@@ -84,14 +91,14 @@ LIGHT_TOKENS = dict(
     ink="#202124", muted="#6b7280", primary="#635bff", primary2="#6d5bff",
     on_primary="#ffffff", chip="#eeebff", chip_ink="#4f46e5",
     ok="#eaf7ee", ok_ink="#188038", warn="#fff4e5", warn_ink="#b06000",
-    err="#fcebea", err_ink="#d93025", hero="linear-gradient(120deg,#6d5bff,#8f5bff 55%,#00c2a8)",
+    err="#fcebea", err_ink="#d93025", hero="linear-gradient(120deg,#4d37e6,#5b47f5 55%,#006b5c)",
 )
 DARK_TOKENS = dict(
     bg="#0b1020", surface="#111827", surface2="#172033", border="#263244",
     ink="#f8fafc", muted="#94a3b8", primary="#8b7cff", primary2="#a296ff",
-    on_primary="#ffffff", chip="#29235f", chip_ink="#c4baff",
+    on_primary="#171513", chip="#29235f", chip_ink="#c4baff",
     ok="#123524", ok_ink="#22c55e", warn="#332a12", warn_ink="#f59e0b",
-    err="#3a1a1c", err_ink="#ef4444", hero="linear-gradient(120deg,#151d3b,#6d5bff 55%,#00937f)",
+    err="#3a1a1c", err_ink="#ef4444", hero="linear-gradient(120deg,#151d3b,#4d37e6 55%,#006b5c)",
 )
 T = DARK_TOKENS if st.session_state.theme == "dark" else LIGHT_TOKENS
 
@@ -180,7 +187,7 @@ p,span,div,label{{color:var(--ink)}}
 /* ---- sidebar profile & nav ---- */
 .brand{{font-size:17px;font-weight:800}}.brand span{{color:var(--muted);font-weight:500;font-size:11.5px;display:block;margin-top:1px}}
 .sideprofile{{display:flex;gap:10px;align-items:center;padding:12px;border-radius:14px;background:var(--surface2);border:1px solid var(--border)}}
-.sideavatar{{width:38px;height:38px;border-radius:50%;background:var(--primary);color:#fff;font-weight:800;font-size:15px;
+.sideavatar{{width:38px;height:38px;border-radius:50%;background:var(--primary);color:var(--on-primary);font-weight:800;font-size:15px;
  display:flex;align-items:center;justify-content:center;flex-shrink:0}}
 .role{{display:inline-block;padding:2px 10px;border-radius:999px;font-size:10.5px;font-weight:700;background:var(--chip);color:var(--chip-ink)}}
 .sidestatus{{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:var(--ok-ink);
@@ -191,7 +198,7 @@ p,span,div,label{{color:var(--ink)}}
 .empty b{{display:block;color:var(--ink);font-size:15px;margin-bottom:3px}}
 
 /* ---- chat bubbles & citations ---- */
-.bubble-user{{background:var(--primary);color:#fff;border-radius:16px 16px 3px 16px;padding:12px 15px;
+.bubble-user{{background:var(--primary);color:var(--on-primary);border:1px solid var(--primary);border-radius:16px 16px 3px 16px;padding:12px 15px;
  max-width:80%;margin-left:auto;font-size:14.5px;line-height:1.5}}
 .bubble-ai{{background:var(--surface);border:1px solid var(--border);border-radius:16px 16px 16px 3px;padding:15px;font-size:14.5px;line-height:1.55}}
 .citebox{{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-top:8px}}
@@ -202,7 +209,7 @@ p,span,div,label{{color:var(--ink)}}
 
 /* ---- guide steps ---- */
 .step{{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:18px;margin-bottom:12px}}
-.step .idx{{width:30px;height:30px;border-radius:50%;background:var(--primary);color:#fff;font-weight:700;font-size:13px;
+.step .idx{{width:30px;height:30px;border-radius:50%;background:var(--primary);color:var(--on-primary);font-weight:700;font-size:13px;
  display:flex;align-items:center;justify-content:center;flex-shrink:0}}
 
 /* ---- widgets ---- */
@@ -210,8 +217,9 @@ p,span,div,label{{color:var(--ink)}}
  background:var(--surface);color:var(--ink);font-weight:600;padding:.5rem 1rem;transition:.15s}}
 .stButton>button:hover{{border-color:var(--primary);color:var(--primary)}}
 .stButton>button[kind="primary"],.stButton>button[data-testid="stBaseButton-primary"]{{
- background:var(--primary);border:0;color:#fff}}
-.stButton>button[kind="primary"]:hover,.stButton>button[data-testid="stBaseButton-primary"]:hover{{filter:brightness(1.08);color:#fff}}
+ background:var(--primary);border:1px solid var(--primary);color:var(--on-primary);
+ box-shadow:0 4px 14px rgba(99,91,255,.25)}}
+.stButton>button[kind="primary"]:hover,.stButton>button[data-testid="stBaseButton-primary"]:hover{{filter:brightness(1.08);border-color:var(--primary2);color:var(--on-primary)}}
 .stTextInput input,.stTextArea textarea,div[data-baseweb="select"]>div{{background:var(--surface2)!important;
  border:1px solid var(--border)!important;border-radius:11px!important;color:var(--ink)!important}}
 .stTextInput input:focus,.stTextArea textarea:focus{{border-color:var(--primary)!important;box-shadow:0 0 0 3px rgba(83,62,229,.15)!important}}
@@ -301,18 +309,6 @@ def render_backend_status() -> None:
     label = "Backend online" if online else "Backend offline"
     st.markdown(
         f'<div class="status"><span class="statusdot" style="background:{color}"></span>{label}</div>',
-        unsafe_allow_html=True,
-    )
-
-
-@st.fragment(run_every="15s")
-@st.fragment(run_every="3s")
-def render_backend_status() -> None:
-    online = backend_is_online()
-    color = "#0f8f5f" if online else "#ba1a1a"
-    label = "Backend online" if online else "Backend offline"
-    st.markdown(
-        f'<span class="status"><span class="statusdot" style="background:{color}"></span>{label}</span>',
         unsafe_allow_html=True,
     )
 
@@ -500,26 +496,34 @@ def render_empty(icon: str, title: str, text: str) -> None:
     st.markdown(f'<div class="empty">{msi(icon)}<b>{html.escape(title)}</b>{html.escape(text)}</div>', unsafe_allow_html=True)
 
 
-def render_sources(sources) -> None:
+def render_source_cards(sources) -> None:
+    for source in sources:
+        if not isinstance(source, dict):
+            st.write(str(source))
+            continue
+        with st.container(border=True):
+            filename = html.escape(str(source.get("filename", "Document")))
+            page = source.get("page") or source.get("page_number")
+            section = source.get("section") or source.get("subsection")
+            st.markdown(f"**{msi('description')} {filename}**" + (f" · Page {page}" if page else ""), unsafe_allow_html=True)
+            if section:
+                st.caption(str(section))
+            if source.get("excerpt"):
+                st.write(f"“{source['excerpt']}”")
+            for field, label in (("vector_score", "Vector"), ("hybrid_score", "Hybrid"), ("rerank_score", "Rerank")):
+                if source.get(field) is not None:
+                    st.caption(f"{label} score: {float(source[field]):.3f}")
+
+
+def render_sources(sources, expandable: bool = True) -> None:
     if not sources:
         return
-    with st.expander(f"📚 Sources used ({len(sources)})"):
-        for source in sources:
-            if not isinstance(source, dict):
-                st.write(str(source))
-                continue
-            with st.container(border=True):
-                filename = html.escape(str(source.get("filename", "Document")))
-                page = source.get("page") or source.get("page_number")
-                section = source.get("section") or source.get("subsection")
-                st.markdown(f"**{msi('description')} {filename}**" + (f" · Page {page}" if page else ""), unsafe_allow_html=True)
-                if section:
-                    st.caption(str(section))
-                if source.get("excerpt"):
-                    st.write(f"“{source['excerpt']}”")
-                for field, label in (("vector_score", "Vector"), ("hybrid_score", "Hybrid"), ("rerank_score", "Rerank")):
-                    if source.get(field) is not None:
-                        st.caption(f"{label} score: {float(source[field]):.3f}")
+    if expandable:
+        with st.expander(f"📚 Sources used ({len(sources)})"):
+            render_source_cards(sources)
+    else:
+        st.markdown(f"**📚 Sources used ({len(sources)})**")
+        render_source_cards(sources)
 
 
 # ============================================================================
@@ -627,7 +631,14 @@ def render_sidebar() -> None:
         options = PAGES + ([ADMIN_PAGE] if is_admin else [])
         labels = [f"{p}" for p in options]
         current_index = options.index(st.session_state.nav) if st.session_state.nav in options else 0
-        picked = st.radio("Navigation", labels, index=current_index, label_visibility="collapsed")
+        st.session_state.setdefault("navigation_selection", labels[current_index])
+        picked = st.radio(
+            "Navigation",
+            labels,
+            index=current_index,
+            key="navigation_selection",
+            label_visibility="collapsed",
+        )
         st.session_state.nav = options[labels.index(picked)]
 
         st.write("")
@@ -724,12 +735,15 @@ def document_list() -> None:
                 <div><div class="name">{filename}</div><div class="meta">{meta}{status.title()}</div>{error_html}</div>
                 </div>{render_pill(status)}</div>''', unsafe_allow_html=True)
         document_id = doc_id(d)
-        if document_id and ask_col.button("Ask", key=f"ask-document-{document_id}", help="Ask about this document"):
-            st.session_state.chat_docs = [document_id]
-            st.session_state[f"chatdoc_{document_id}"] = True
-            st.session_state.nav = "AI Chat"
-            st.rerun()
-        if document_id and delete_col.button(msi("delete"), key=f"delete_{document_id}", help="Delete document"):
+        if document_id:
+            ask_col.button(
+                "Ask",
+                key=f"ask-document-{document_id}",
+                help="Ask about this document",
+                on_click=ask_about_document,
+                args=(document_id,),
+            )
+        if document_id and delete_col.button("Delete", key=f"delete_{document_id}", help="Delete document"):
             response = api_call("delete", f"/api/v1/documents/{document_id}")
             if response is not None and response.status_code in (200, 204):
                 st.rerun()
@@ -806,7 +820,8 @@ def page_chat() -> None:
     with left_col:
         with st.container(border=True):
             st.markdown("**Search in**")
-            st.caption(f"{len(st.session_state.get('chat_docs', []))} of {len(ready_docs)} ready documents selected")
+            st.session_state.setdefault("chat_docs", list(ready_docs))
+            st.session_state.chat_docs = [i for i in st.session_state.chat_docs if i in ready_docs]
             select_col, clear_col = st.columns(2)
             if select_col.button("Select all", use_container_width=True):
                 st.session_state.chat_docs = list(ready_docs)
@@ -815,8 +830,6 @@ def page_chat() -> None:
                 st.session_state.chat_docs = []
                 st.rerun()
 
-            st.session_state.setdefault("chat_docs", list(ready_docs))
-            st.session_state.chat_docs = [i for i in st.session_state.chat_docs if i in ready_docs]
             for doc_key, d in ready_docs.items():
                 checked = st.checkbox(d.get("filename", "Document"), value=doc_key in st.session_state.chat_docs,
                                       key=f"chatdoc_{doc_key}")
@@ -826,6 +839,7 @@ def page_chat() -> None:
                     st.session_state.chat_docs.remove(doc_key)
             if not ready_docs:
                 st.caption("No ready documents yet.")
+            st.caption(f"{len(st.session_state.chat_docs)} of {len(ready_docs)} ready documents selected")
 
     with right_col:
         with st.container(border=True):
@@ -933,7 +947,7 @@ def page_history() -> None:
                 elif message.get("role") == "assistant":
                     st.markdown("**Answer**")
                     st.markdown(message.get("content", ""))
-                    render_sources(message.get("citations") or [])
+                    render_sources(message.get("citations") or [], expandable=False)
 
 
 def page_admin() -> None:
@@ -1021,7 +1035,7 @@ def page_admin() -> None:
         row[4].markdown(render_pill(doc_status(document)), unsafe_allow_html=True)
         row[5].caption(str(document.get("created_at", ""))[:19])
         document_id = document.get("document_id")
-        if document_id and row[6].button(msi("delete"), key=f"admin-delete-{document_id}", help="Delete document"):
+        if document_id and row[6].button("Delete", key=f"admin-delete-{document_id}", help="Delete document"):
             delete_response = api_call("delete", f"/api/v1/documents/{document_id}")
             if delete_response is not None and delete_response.status_code in (200, 204):
                 st.rerun()

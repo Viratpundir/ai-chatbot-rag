@@ -50,6 +50,7 @@ def _build_async_engine() -> AsyncEngine:
         "future": True,
     }
     if settings.DATABASE_URL.startswith("sqlite"):
+        kwargs["connect_args"] = {"timeout": 30}
         return create_async_engine(settings.DATABASE_URL, **kwargs)
 
     # Use NullPool in production so every request gets a fresh connection
