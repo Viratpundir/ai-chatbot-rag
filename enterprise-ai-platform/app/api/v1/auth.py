@@ -107,6 +107,7 @@ async def register(
             name=body.name,
             email=body.email,
             password=body.password,
+            role=body.role,
         )
     except AuthError as exc:
         raise HTTPException(

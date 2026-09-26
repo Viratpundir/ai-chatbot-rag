@@ -15,7 +15,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 
 from app.auth.permissions import require_admin
 from app.core.logging import get_logger
@@ -38,8 +38,32 @@ class DashboardStats(BaseModel):
     total_documents: int
     processing_documents: int
     failed_documents: int
+    ready_documents: int
+    total_pages: int
+    total_chunks: int
+    searchable_documents: int
     total_queries: int
     queries_today: int
+
+
+class AdminDocumentItem(BaseModel):
+    document_id: str
+    filename: str
+    owner_id: str
+    owner_name: str
+    owner_email: str
+    page_count: Optional[int] = None
+    chunk_count: Optional[int] = None
+    status: str
+    created_at: datetime
+    file_size: int
+
+
+class AdminDocumentList(BaseModel):
+    documents: List[AdminDocumentItem]
+    total: int
+    page: int
+    page_size: int
 
 
 class SystemHealth(BaseModel):
@@ -88,15 +112,78 @@ async def dashboard(
     _, total_users = await users.get_many(limit=1)
     active_users = (await users.get_many(is_active=True, limit=1))[1]
     document_stats = await documents.get_document_stats()
+    totals = await db.execute(
+        select(
+            func.coalesce(func.sum(Document.doc_metadata["page_count"].as_integer()), 0),
+            func.coalesce(func.sum(Document.chunk_count), 0),
+            func.coalesce(func.sum(case((Document.status == "ready", 1), else_=0)), 0),
+        ).where(Document.status != "deleted")
+    )
+    total_pages, total_chunks, searchable_documents = totals.one()
     audit = AuditLogRepository(db)
     return DashboardStats(
         total_users=total_users,
         active_users=active_users,
         total_documents=sum(document_stats.values()),
-        processing_documents=document_stats.get("processing", 0) + document_stats.get("pending", 0),
+        processing_documents=(
+            document_stats.get("uploaded", 0)
+            + document_stats.get("processing", 0)
+            + document_stats.get("pending", 0)
+        ),
         failed_documents=document_stats.get("failed", 0),
+        ready_documents=document_stats.get("ready", 0),
+        total_pages=total_pages,
+        total_chunks=total_chunks,
+        searchable_documents=searchable_documents,
         total_queries=await audit.count_by_action("rag_query", since_minutes=525600),
         queries_today=await audit.count_by_action("rag_query", since_minutes=1440),
+    )
+
+
+@router.get(
+    "/documents",
+    response_model=AdminDocumentList,
+    summary="List knowledge-base documents (ADMIN+)",
+)
+async def list_documents(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=100),
+    current_user: User = Depends(require_admin),
+    db=Depends(get_db),
+):
+    base_query = select(Document).where(Document.status != "deleted")
+    count_result = await db.execute(
+        select(func.count()).select_from(base_query.subquery())
+    )
+    total = count_result.scalar_one()
+    result = await db.execute(
+        select(Document, User.name, User.email)
+        .join(User, User.id == Document.owner_id)
+        .where(Document.status != "deleted")
+        .order_by(Document.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    documents = []
+    for document, owner_name, owner_email in result.all():
+        metadata = document.doc_metadata if isinstance(document.doc_metadata, dict) else {}
+        documents.append(AdminDocumentItem(
+            document_id=document.id,
+            filename=document.original_filename,
+            owner_id=document.owner_id,
+            owner_name=owner_name,
+            owner_email=owner_email,
+            page_count=metadata.get("page_count"),
+            chunk_count=document.chunk_count,
+            status=document.status,
+            created_at=document.created_at,
+            file_size=document.file_size,
+        ))
+    return AdminDocumentList(
+        documents=documents,
+        total=total,
+        page=page,
+        page_size=page_size,
     )
 
 

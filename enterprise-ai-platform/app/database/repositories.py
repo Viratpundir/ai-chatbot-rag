@@ -397,7 +397,9 @@ class DocumentRepository:
         limit: int = 20,
     ) -> Tuple[List[Document], int]:
         q = select(Document).where(Document.status != "deleted")
-        if owner_id:
+        if owner_id and allowed_ids is not None:
+            q = q.where(or_(Document.owner_id == owner_id, Document.id.in_(allowed_ids)))
+        elif owner_id:
             q = q.where(Document.owner_id == owner_id)
         if status:
             q = q.where(Document.status == status)
@@ -405,7 +407,7 @@ class DocumentRepository:
             q = q.where(Document.classification == classification)
         if department:
             q = q.where(Document.department == department)
-        if allowed_ids is not None:
+        if allowed_ids is not None and owner_id is None:
             q = q.where(Document.id.in_(allowed_ids))
 
         count_result = await self.db.execute(
@@ -748,6 +750,20 @@ class ConversationRepository:
     async def count_messages(self, conversation_id: str) -> int:
         result = await self.db.execute(
             select(func.count()).where(Message.conversation_id == conversation_id)
+        )
+        return result.scalar_one()
+
+    async def count_user_messages(self, user_id: str) -> int:
+        result = await self.db.execute(
+            select(func.count(Message.id))
+            .join(Conversation, Conversation.id == Message.conversation_id)
+            .where(
+                and_(
+                    Conversation.user_id == user_id,
+                    Conversation.is_active == True,  # noqa: E712
+                    Message.role == "user",
+                )
+            )
         )
         return result.scalar_one()
 

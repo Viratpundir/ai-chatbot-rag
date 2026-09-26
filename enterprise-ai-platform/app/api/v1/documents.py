@@ -88,6 +88,8 @@ def _to_response(document) -> DocumentStatusResponse:
         document_id=document.id,
         filename=document.original_filename,
         status=document.status,
+        owner_id=document.owner_id,
+        file_size=document.file_size,
         classification=document.classification,
         department=document.department,
         version=document.version,
@@ -105,8 +107,10 @@ async def _get_accessible_document(document_id: str, user: User, db):
     document = await DocumentRepository(db).get_by_id(document_id)
     if document is None or document.status == "deleted":
         raise HTTPException(status_code=404, detail="Document not found.")
+    role = str(user.role).upper()
+    is_admin = role in {"ADMIN", "SUPER_ADMIN"}
     allowed = await get_allowed_document_ids_for_user(user, db)
-    if document.id not in allowed:
+    if not is_admin and document.owner_id != user.id and document.id not in allowed:
         raise HTTPException(status_code=403, detail="You cannot access this document.")
     return document
 
@@ -216,8 +220,10 @@ async def list_documents(
     current_user: User = Depends(get_current_user),
     db=Depends(get_db),
 ):
-    allowed = await get_allowed_document_ids_for_user(current_user, db)
+    is_admin = str(current_user.role).upper() in {"ADMIN", "SUPER_ADMIN"}
+    allowed = None if is_admin else await get_allowed_document_ids_for_user(current_user, db)
     documents, total = await DocumentRepository(db).get_many(
+        owner_id=None if is_admin else current_user.id,
         status=status_filter,
         classification=classification,
         department=department,

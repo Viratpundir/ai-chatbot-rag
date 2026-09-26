@@ -6,7 +6,7 @@ Pydantic request / response schemas for authentication endpoints.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.core.security import validate_password_strength
@@ -20,6 +20,7 @@ class RegisterRequest(BaseModel):
     name: str = Field(..., min_length=2, max_length=120)
     email: EmailStr
     password: str = Field(..., min_length=8)
+    role: Literal["EMPLOYEE", "STUDENT"] = "EMPLOYEE"
 
     @field_validator("password")
     @classmethod

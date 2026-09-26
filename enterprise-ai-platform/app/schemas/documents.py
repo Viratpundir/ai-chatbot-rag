@@ -27,6 +27,8 @@ class DocumentStatusResponse(BaseModel):
     document_id: str
     filename: str
     status: str
+    owner_id: Optional[str] = None
+    file_size: Optional[int] = None
     classification: str
     department: Optional[str] = None
     version: int

@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import pytest
+from types import SimpleNamespace
 
-from app.agent.guide import AIGuideAgent, classify_intent
+from app.agent.guide import AIGuideAgent, build_agent, classify_intent
 from app.agent.registry import ToolDefinition, ToolRegistry
 from app.auth.permissions import can_user_upload_documents, restrict_document_ids
 from app.database.models import User
@@ -94,3 +95,30 @@ def test_upload_role_policy_is_configurable() -> None:
     assert can_user_upload_documents(make_user("ADMIN")) is True
     assert can_user_upload_documents(make_user("EMPLOYEE")) is True
     assert can_user_upload_documents(make_user("STUDENT")) is True
+
+
+@pytest.mark.asyncio
+async def test_guide_passes_selected_document_ids_to_rag() -> None:
+    received = {}
+
+    async def rag_query(question, user, document_ids=None, all_authorized=True):
+        received.update({
+            "question": question,
+            "document_ids": document_ids,
+            "all_authorized": all_authorized,
+        })
+        return SimpleNamespace(answer="Grounded result", citations=[])
+
+    result = await build_agent(rag_query).run(
+        "Summarize the selected policy",
+        make_user("EMPLOYEE"),
+        document_ids=["doc-1"],
+        all_authorized=False,
+    )
+
+    assert received == {
+        "question": "Summarize the selected policy",
+        "document_ids": ["doc-1"],
+        "all_authorized": False,
+    }
+    assert result.reply == "Grounded result"

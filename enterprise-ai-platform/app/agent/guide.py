@@ -54,6 +54,8 @@ class AIGuideAgent:
         user: User,
         confirm_action: Optional[bool] = None,
         pending_action: Optional[Dict[str, Any]] = None,
+        document_ids: Optional[list[str]] = None,
+        all_authorized: bool = True,
     ) -> AgentResult:
         started = time.perf_counter()
         intent = classify_intent(message)
@@ -75,7 +77,13 @@ class AIGuideAgent:
                 trace.set_extra(status="clarification")
                 return self._result(reply, intent, [], None, started)
 
-            arguments = pending_action.get("arguments", {}) if pending_action and confirm_action else {"query": message}
+            if pending_action and confirm_action:
+                arguments = pending_action.get("arguments", {})
+            else:
+                arguments = {"query": message}
+                if document_ids is not None:
+                    arguments["document_ids"] = document_ids
+                    arguments["all_authorized"] = all_authorized
             tool = self.registry.get(tool_name)
             trace.set_tool(tool.name)
             result, needs_confirmation = await self.registry.execute(

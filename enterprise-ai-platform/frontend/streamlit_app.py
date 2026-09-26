@@ -2,378 +2,24 @@ import base64
 import html
 import json
 import os
+from urllib.parse import urlsplit
 
 import requests
 import streamlit as st
 
-API = os.getenv("API_BASE_URL", "http://127.0.0.1:8000").rstrip("/")
+API = os.getenv("API_BASE_URL", "").rstrip("/")
 TIMEOUT = 30
 
-st.set_page_config(page_title="Enterprise AI Knowledge Platform", page_icon="🤖",
-                   layout="wide", initial_sidebar_state="expanded")
-
-# ============================================================ THEME
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Manrope:wght@500;600;700;800&display=swap');
-
-:root{
-  --ink:#202124;
-  --muted:#6b7280;
-  --bg:#f8f9fa;
-  --surface:#ffffff;
-  --surface-2:#f1f3f4;
-  --line:#e5e7eb;
-  --purple:#635bff;
-  --purple-dark:#4f46e5;
-  --teal:#0f9d8a;
-  --blue:#4285f4;
-  --green:#188038;
-  --red:#d93025;
-  --amber:#b06000;
-  --shadow:0 1px 2px rgba(60,64,67,.08),0 4px 16px rgba(60,64,67,.06);
-  --shadow-lg:0 8px 30px rgba(60,64,67,.10);
-}
-
-html,body,[class*="css"],.stApp{
-  font-family:'Inter',sans-serif;
-  color:var(--ink);
-}
-.stApp{
-  background:
-    radial-gradient(900px 420px at 100% -10%,rgba(99,91,255,.08),transparent 65%),
-    radial-gradient(700px 360px at 0% 20%,rgba(66,133,244,.055),transparent 65%),
-    var(--bg);
-}
-#MainMenu,footer,[data-testid="stToolbar"],[data-testid="stDecoration"]{display:none!important}
-header[data-testid="stHeader"]{background:rgba(248,249,250,.72);backdrop-filter:blur(14px)}
-.block-container{max-width:1320px;padding:1.35rem 2rem 4rem}
-
-/* Sidebar */
-section[data-testid="stSidebar"]{
-  background:#fff;
-  border-right:1px solid var(--line);
-  box-shadow:4px 0 18px rgba(60,64,67,.035);
-}
-section[data-testid="stSidebar"] > div:first-child{padding-top:1.1rem}
-.brand{
-  font-family:'Manrope',sans-serif;
-  font-size:20px;
-  font-weight:800;
-  letter-spacing:-.03em;
-  color:#202124;
-}
-.brand span{
-  display:block;
-  color:#7b8190;
-  font-weight:500;
-  font-size:11.5px;
-  margin-top:3px;
-  letter-spacing:0;
-}
-
-/* Typography */
-h1,h2,h3,h4{
-  font-family:'Manrope',sans-serif!important;
-  color:var(--ink)!important;
-  letter-spacing:-.035em;
-}
-h1{font-weight:800!important}
-h2,h3{font-weight:750!important}
-
-/* Top hero */
-.hero{
-  position:relative;
-  overflow:hidden;
-  border:1px solid #e3e5ea;
-  border-radius:24px;
-  padding:34px 38px;
-  margin-bottom:24px;
-  background:
-    linear-gradient(135deg,#fff 0%,#fbfbff 52%,#f5f7ff 100%);
-  box-shadow:var(--shadow);
-}
-.hero:before{
-  content:"";
-  position:absolute;
-  right:-100px;
-  top:-120px;
-  width:320px;
-  height:320px;
-  border-radius:50%;
-  background:radial-gradient(circle,rgba(99,91,255,.16),rgba(99,91,255,0) 68%);
-}
-.hero:after{
-  content:"";
-  position:absolute;
-  right:90px;
-  bottom:-170px;
-  width:280px;
-  height:280px;
-  border-radius:50%;
-  background:radial-gradient(circle,rgba(15,157,138,.09),rgba(15,157,138,0) 68%);
-}
-.hero h1,.hero p{position:relative;z-index:2}
-.hero h1{font-size:34px!important;margin:0 0 7px!important}
-.hero p{color:#68707d;margin:0;font-size:15px;max-width:720px;line-height:1.65}
-
-/* KPI cards */
-.metric{
-  background:var(--surface);
-  border:1px solid var(--line);
-  border-radius:18px;
-  padding:20px;
-  box-shadow:var(--shadow);
-  transition:.18s ease;
-}
-.metric:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg)}
-.metric .ico{
-  width:38px;height:38px;border-radius:11px;
-  display:flex;align-items:center;justify-content:center;
-  font-size:18px;margin-bottom:14px;
-  background:#f0efff;color:var(--purple-dark);
-}
-.metric .num{
-  font-family:'Manrope',sans-serif;
-  font-size:29px;font-weight:800;line-height:1;
-}
-.metric .lbl{color:#747b87;font-size:12.5px;margin-top:7px}
-
-/* Feature cards */
-.feature{
-  background:var(--surface);
-  border:1px solid var(--line);
-  border-radius:18px;
-  padding:22px;
-  margin-bottom:10px;
-  min-height:125px;
-  box-shadow:var(--shadow);
-  transition:.18s ease;
-}
-.feature:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg);border-color:#d8dbe2}
-.feature h4{margin:0 0 7px;font-size:16px!important}
-.feature p{margin:0;color:#707782;font-size:13.5px;line-height:1.55}
-
-/* Document rows */
-.doc{
-  display:flex;align-items:center;gap:14px;
-  background:#fff;border:1px solid var(--line);
-  border-radius:14px;padding:14px 17px;margin-bottom:6px;
-  box-shadow:0 1px 2px rgba(60,64,67,.035);
-  transition:.16s ease;
-}
-.doc:hover{border-color:#d4d7dd;box-shadow:var(--shadow)}
-.doc .name{font-weight:600;flex:1;word-break:break-word;color:#2d3136}
-.doc .meta{color:#7a818c;font-size:12.5px}
-
-/* Status */
-.pill{
-  padding:4px 10px;border-radius:999px;font-size:11.5px;
-  font-weight:700;border:1px solid;white-space:nowrap
-}
-.p-ready{color:var(--green);background:#eaf7ee;border-color:#c6e8d0}
-.p-proc{color:var(--amber);background:#fff4e5;border-color:#f5d6a7}
-.p-fail{color:var(--red);background:#fcebea;border-color:#f1c3bf}
-.p-other{color:#68707d;background:#f1f3f4;border-color:#dfe1e5}
-
-.role{
-  display:inline-block;padding:3px 10px;border-radius:999px;font-size:11px;
-  font-weight:700;background:#efedff;color:#564dcc;border:1px solid #ddd8ff
-}
-.role.admin{background:#fff1e6;color:#b45309;border-color:#fed7aa}
-.role.student{background:#e7f8f5;color:#087f6d;border-color:#bfe9df}
-
-.avatar{
-  width:44px;height:44px;border-radius:50%;
-  display:flex;align-items:center;justify-content:center;
-  font-weight:800;font-size:17px;
-  background:#e8f0fe;color:#315bbd
-}
-.status{
-  display:inline-flex;align-items:center;gap:7px;padding:5px 11px;
-  border-radius:999px;font-size:12px;border:1px solid var(--line);
-  background:#fff;color:#59616d
-}
-.dot{width:7px;height:7px;border-radius:50%}
-.empty{
-  text-align:center;color:#7a818c;border:1px dashed #d7dae0;
-  border-radius:18px;padding:46px 20px;background:rgba(255,255,255,.62)
-}
-.empty b{display:block;color:#34383d;font-size:16px;margin-bottom:4px}
-.bullet{display:flex;gap:13px;margin:17px 0}
-.bullet i{font-style:normal;font-size:19px}
-.bullet b{display:block;color:#30343a}
-.bullet span{color:#727985;font-size:13.5px}
-
-/* Streamlit widgets */
-.stButton>button,.stFormSubmitButton>button{
-  border-radius:10px;
-  border:1px solid #dadce0;
-  background:#fff;
-  color:#303134;
-  font-weight:600;
-  min-height:40px;
-  transition:.16s ease;
-}
-.stButton>button:hover{
-  border-color:#c5c9d0;
-  background:#f8f9fa;
-  color:#202124;
-  transform:translateY(-1px);
-}
-.stButton>button[kind="primary"],
-.stButton>button[data-testid="stBaseButton-primary"]{
-  background:var(--purple);
-  border:1px solid var(--purple);
-  color:#fff;
-  box-shadow:0 5px 14px rgba(99,91,255,.20);
-}
-.stButton>button[kind="primary"]:hover,
-.stButton>button[data-testid="stBaseButton-primary"]:hover{
-  background:var(--purple-dark);color:#fff
-}
-.stTextInput input,.stTextArea textarea,
-div[data-baseweb="select"]>div{
-  background:#fff!important;
-  border:1px solid #dadce0!important;
-  border-radius:10px!important;
-  color:#202124!important;
-}
-.stTextInput input:focus,.stTextArea textarea:focus{
-  border-color:#7b72ff!important;
-  box-shadow:0 0 0 3px rgba(99,91,255,.12)!important
-}
-[data-testid="stVerticalBlockBorderWrapper"]{
-  border-radius:18px;
-  border-color:#e1e3e7;
-  background:#fff;
-  box-shadow:var(--shadow)
-}
-[data-testid="stFileUploaderDropzone"]{
-  background:#fafbff;
-  border:1.5px dashed #c9c4f7;
-  border-radius:15px
-}
-[data-testid="stChatMessage"]{
-  background:#fff;
-  border:1px solid #e3e5e8;
-  border-radius:16px;
-  padding:14px 18px;
-  box-shadow:0 1px 2px rgba(60,64,67,.04)
-}
-[data-testid="stChatInput"]{border-radius:14px}
-.stTabs [data-baseweb="tab-list"]{gap:5px}
-.stTabs [data-baseweb="tab"]{
-  border-radius:9px;padding:8px 15px;color:#5f6368
-}
-.stTabs [aria-selected="true"]{
-  background:#efedff;color:#5148c9
-}
-section[data-testid="stSidebar"] [role="radiogroup"] label{
-  padding:9px 12px;
-  border-radius:10px;
-  margin-bottom:2px;
-  transition:.15s;
-  color:#3c4043 !important;
-  background:transparent !important;
-}
-section[data-testid="stSidebar"] [role="radiogroup"] label *,
-section[data-testid="stSidebar"] [role="radiogroup"] label p,
-section[data-testid="stSidebar"] [role="radiogroup"] label span,
-section[data-testid="stSidebar"] [role="radiogroup"] label div{
-  color:#3c4043 !important;
-}
-section[data-testid="stSidebar"] [role="radiogroup"] label:hover{
-  background:#f1f3f4 !important;
-  color:#202124 !important;
-}
-section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked){
-  background:#eeebff !important;
-  color:#4f46d8 !important;
-  font-weight:700;
-}
-section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) *,
-section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) p,
-section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) span,
-section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked) div{
-  color:#4f46d8 !important;
-}
-section[data-testid="stSidebar"] [role="radiogroup"] label>div:first-child{display:none}
-
-/* Force readable text throughout the light enterprise sidebar. */
-section[data-testid="stSidebar"] *,
-section[data-testid="stSidebar"] .stMarkdown,
-section[data-testid="stSidebar"] .stCaption,
-section[data-testid="stSidebar"] [data-testid="stWidgetLabel"]{
-  color:#3c4043;
-}
-section[data-testid="stSidebar"] .stCaption,
-section[data-testid="stSidebar"] small{
-  color:#70757a !important;
-}
-section[data-testid="stSidebar"] hr{
-  border-color:#e5e7eb !important;
-}
-
-/* Global readability fixes for the light theme. */
-.stMarkdown, .stCaption, label, [data-testid="stWidgetLabel"]{
-  color:#3c4043 !important;
-}
-.stCaption{
-  color:#70757a !important;
-}
-.stAlert p, .stAlert div{
-  color:inherit !important;
-}
-.stSelectbox label, .stMultiSelect label, .stTextInput label,
-.stTextArea label, .stFileUploader label{
-  color:#3c4043 !important;
-}
-div[data-baseweb="select"] *{
-  color:#202124 !important;
-}
-div[data-baseweb="select"] [aria-selected="true"]{
-  color:#202124 !important;
-}
-
-/* Auth */
-.auth-shell{
-  max-width:1180px;margin:3vh auto 0;
-  padding:30px 0
-}
-.auth-brand{
-  font-family:'Manrope',sans-serif;font-weight:800;font-size:21px;
-  color:#202124;letter-spacing:-.03em
-}
-.auth-title{
-  font-family:'Manrope',sans-serif;font-weight:800;
-  font-size:48px;line-height:1.06;letter-spacing:-.05em;
-  margin:25px 0 13px;color:#202124
-}
-.auth-copy{font-size:16px;line-height:1.7;color:#68707d;max-width:560px}
-.auth-badge{
-  display:inline-flex;align-items:center;gap:7px;
-  background:#efedff;color:#5148c9;border:1px solid #ddd8ff;
-  border-radius:999px;padding:6px 11px;font-size:11px;font-weight:800
-}
-
-/* Small-screen cleanup */
-@media(max-width:900px){
-  .block-container{padding-left:1rem;padding-right:1rem}
-  .hero{padding:26px}
-  .hero h1{font-size:28px!important}
-  .auth-title{font-size:36px}
-}
-</style>
-""", unsafe_allow_html=True)
+st.set_page_config(page_title="Enterprise AI", page_icon="✨", layout="wide", initial_sidebar_state="expanded")
 
 # ============================================================ STATE
-DEFAULTS = {"token": None, "user": None, "messages": [], "otp_requested": False, "guide_result": None}
+DEFAULTS = {"token": None, "user": None, "messages": [], "otp_requested": False, "guide_result": None, "theme": "light"}
 for k, v in DEFAULTS.items():
     st.session_state.setdefault(k, v)
 
-PAGES = ["🏠 Dashboard", "📄 Documents", "💬 AI Chat", "🧭 AI Guide", "📜 History"]
-ADMIN_PAGE = "⚙️ Admin Dashboard"
+PAGES = ["Dashboard", "Documents", "AI Chat", "AI Guide", "History"]
+ADMIN_PAGE = "Admin"
+ICONS_NAV = {"Dashboard": "▦", "Documents": "▤", "AI Chat": "💬", "AI Guide": "🧭", "History": "🕘", "Admin": "⚙️"}
 st.session_state.setdefault("nav", PAGES[0])
 
 
@@ -381,13 +27,137 @@ def go(page):
     st.session_state.nav = page
 
 
+# ============================================================ THEME
+LIGHT = dict(bg="#f7f8fb", surface="#ffffff", surface2="#fafbfd", border="#e8e9f0", ink="#14162b",
+            muted="#6b7280", primary="#6d5bff", primary_ink="#ffffff", chip="#f1f0ff", ok="#e8f8ee", ok_ink="#1a9a52",
+            warn="#fff6e5", warn_ink="#b37700", err="#fdecec", err_ink="#d1373f", hero="linear-gradient(120deg,#f4f3ff,#eafbf5)")
+DARK = dict(bg="#0e0f17", surface="#161826", surface2="#12141f", border="#272a3a", ink="#f2f2f8",
+           muted="#9298b0", primary="#8677ff", primary_ink="#ffffff", chip="#232544", ok="#123524", ok_ink="#4ade80",
+           warn="#332a12", warn_ink="#ffc966", err="#3a1a1c", err_ink="#ff8a8a", hero="linear-gradient(120deg,#1c1a35,#122a2a)")
+
+T = DARK if st.session_state.theme == "dark" else LIGHT
+
+st.markdown(f"""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+:root{{--bg:{T['bg']};--surface:{T['surface']};--surface2:{T['surface2']};--border:{T['border']};--ink:{T['ink']};
+ --muted:{T['muted']};--primary:{T['primary']};--pink:{T['primary_ink']};--chip:{T['chip']};
+ --ok:{T['ok']};--ok-ink:{T['ok_ink']};--warn:{T['warn']};--warn-ink:{T['warn_ink']};--err:{T['err']};--err-ink:{T['err_ink']};--hero:{T['hero']}}}
+html,body,[class*="css"],.stApp{{font-family:'Inter',sans-serif}}
+.stApp{{background:var(--bg);color:var(--ink)}}
+#MainMenu,footer,[data-testid="stToolbar"],[data-testid="stDecoration"]{{display:none!important}}
+header[data-testid="stHeader"]{{background:transparent}}
+.block-container{{padding-top:1.4rem;max-width:1180px}}
+section[data-testid="stSidebar"]{{background:var(--surface);border-right:1px solid var(--border)}}
+h1,h2,h3{{letter-spacing:-.02em;color:var(--ink)}}
+p,span,div,label{{color:var(--ink)}}
+
+.crumb{{display:flex;align-items:center;justify-content:space-between;padding:2px 2px 14px;border-bottom:1px solid var(--border);margin-bottom:18px}}
+.crumb .path{{font-size:14px;color:var(--muted)}}.crumb .path b{{color:var(--ink);font-weight:700}}
+.crumb .right{{display:flex;align-items:center;gap:10px}}
+.connected{{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ok-ink);
+ background:var(--ok);padding:4px 12px;border-radius:999px;font-weight:600}}
+.dot{{width:6px;height:6px;border-radius:50%;background:var(--ok-ink)}}
+
+.hero{{background:var(--hero);border:1px solid var(--border);border-radius:18px;padding:26px 28px;margin-bottom:18px}}
+.hero h1{{font-size:30px;font-weight:800;margin:0 0 6px}}
+.hero p{{color:var(--muted);font-size:14.5px;margin:0;max-width:640px}}
+
+.metric{{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px}}
+.metric .ico{{width:36px;height:36px;border-radius:11px;background:var(--chip);color:var(--primary);
+ display:flex;align-items:center;justify-content:center;font-size:17px;margin-bottom:12px}}
+.metric .num{{font-size:26px;font-weight:800;line-height:1}}
+.metric .lbl{{color:var(--muted);font-size:11.5px;letter-spacing:.04em;text-transform:uppercase;margin-top:5px;font-weight:600}}
+
+.gscard{{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;height:100%}}
+.gscard .ico{{width:38px;height:38px;border-radius:11px;background:var(--chip);color:var(--primary);
+ display:flex;align-items:center;justify-content:center;font-size:18px;margin-bottom:14px}}
+.gscard .t{{font-weight:700;font-size:15.5px;margin-bottom:4px}}
+.gscard .d{{color:var(--muted);font-size:13px;line-height:1.5}}
+
+.doccard{{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:15px 18px;
+ margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:12px}}
+.doccard .left{{display:flex;align-items:center;gap:12px;min-width:0}}
+.doccard .ico{{width:34px;height:34px;border-radius:9px;background:var(--chip);color:var(--primary);
+ display:flex;align-items:center;justify-content:center;flex-shrink:0}}
+.doccard .name{{font-weight:600;font-size:14px;word-break:break-all}}
+.doccard .meta{{color:var(--muted);font-size:12px;margin-top:1px}}
+
+.pill{{display:inline-flex;align-items:center;gap:5px;padding:3px 11px;border-radius:999px;font-size:11.5px;font-weight:700;white-space:nowrap}}
+.p-ready{{background:var(--ok);color:var(--ok-ink)}}
+.p-proc{{background:var(--warn);color:var(--warn-ink)}}
+.p-fail{{background:var(--err);color:var(--err-ink)}}
+.p-other{{background:var(--chip);color:var(--muted)}}
+
+.role{{display:inline-block;padding:2px 11px;border-radius:999px;font-size:11px;font-weight:700;background:var(--chip);color:var(--primary)}}
+.sideprofile{{display:flex;gap:10px;align-items:center;padding:12px;border-radius:14px;background:var(--surface2);border:1px solid var(--border)}}
+.sideavatar{{width:38px;height:38px;border-radius:50%;background:var(--primary);color:#fff;font-weight:800;font-size:15px;
+ display:flex;align-items:center;justify-content:center;flex-shrink:0}}
+.brand{{font-size:17px;font-weight:800}}.brand span{{color:var(--muted);font-weight:500;font-size:11.5px;display:block;margin-top:1px}}
+
+.empty{{text-align:center;color:var(--muted);border:1.5px dashed var(--border);border-radius:16px;padding:40px 20px;background:var(--surface2)}}
+.empty b{{display:block;color:var(--ink);font-size:15.5px;margin-bottom:3px}}
+
+.bubble-user{{background:var(--primary);color:#fff;border-radius:16px 16px 3px 16px;padding:12px 15px;
+ max-width:80%;margin-left:auto;font-size:14.5px;line-height:1.5}}
+.bubble-ai{{background:var(--surface);border:1px solid var(--border);border-radius:16px 16px 16px 3px;padding:15px;font-size:14.5px;line-height:1.55}}
+.citebox{{background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-top:8px}}
+.citecard{{background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:8px 11px;margin-top:6px;
+ display:flex;justify-content:space-between;align-items:center}}
+.citecard .fn{{font-weight:600;font-size:12.5px}}
+.citecard .pg{{font-size:10.5px;background:var(--chip);color:var(--primary);padding:2px 8px;border-radius:6px}}
+
+.stButton>button,.stFormSubmitButton>button{{border-radius:10px;border:1px solid var(--border);
+ background:var(--surface);color:var(--ink);font-weight:600;padding:.5rem 1rem;transition:.15s}}
+.stButton>button:hover{{border-color:var(--primary);color:var(--primary)}}
+.stButton>button[kind="primary"],.stButton>button[data-testid="stBaseButton-primary"]{{
+ background:var(--primary);border:0;color:#fff}}
+.stButton>button[kind="primary"]:hover,.stButton>button[data-testid="stBaseButton-primary"]:hover{{filter:brightness(1.08);color:#fff}}
+.stTextInput input,.stTextArea textarea,div[data-baseweb="select"]>div{{background:var(--surface2)!important;
+ border:1px solid var(--border)!important;border-radius:10px!important;color:var(--ink)!important}}
+.stTextInput input:focus,.stTextArea textarea:focus{{border-color:var(--primary)!important;box-shadow:0 0 0 3px rgba(109,91,255,.15)!important}}
+[data-testid="stVerticalBlockBorderWrapper"]{{border-radius:16px;border-color:var(--border);background:var(--surface)}}
+[data-testid="stFileUploaderDropzone"]{{background:var(--surface2);border:1.5px dashed var(--border);border-radius:14px}}
+.stTabs [data-baseweb="tab-list"]{{gap:4px}}.stTabs [data-baseweb="tab"]{{border-radius:8px;padding:7px 14px;color:var(--muted)}}
+.stTabs [aria-selected="true"]{{background:var(--chip);color:var(--primary)!important}}
+section[data-testid="stSidebar"] [role="radiogroup"] label{{padding:8px 11px;border-radius:10px;margin-bottom:2px}}
+section[data-testid="stSidebar"] [role="radiogroup"] label:hover{{background:var(--surface2)}}
+section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked){{background:var(--chip);color:var(--primary)}}
+section[data-testid="stSidebar"] [role="radiogroup"] label>div:first-child{{display:none}}
+.stCaption,[data-testid="stCaptionContainer"]{{color:var(--muted)!important}}
+</style>
+""", unsafe_allow_html=True)
+
+
+def theme_toggle():
+    c1, c2 = st.columns([10, 1])
+    with c2:
+        icon = "🌙" if st.session_state.theme == "light" else "☀️"
+        if st.button(icon, key="theme_toggle", help="Switch theme"):
+            st.session_state.theme = "dark" if st.session_state.theme == "light" else "light"
+            st.rerun()
+
+
 # ============================================================ API
 def call(method, path, **kw):
+    api_base = API
+    if not api_base:
+        try:
+            headers_context = st.context.headers
+            request_host = urlsplit(f"//{headers_context.get('Host', '')}").hostname
+            scheme = headers_context.get("X-Forwarded-Proto", "http").split(",")[0].strip()
+            if request_host:
+                formatted_host = f"[{request_host}]" if ":" in request_host else request_host
+                api_base = f"{scheme}://{formatted_host}:8000"
+        except Exception:
+            api_base = ""
+    if not api_base:
+        return None
     headers = {"Accept": "application/json"}
     if st.session_state.token:
         headers["Authorization"] = f"Bearer {st.session_state.token}"
     try:
-        return requests.request(method, f"{API}{path}", headers=headers, timeout=TIMEOUT, **kw)
+        return requests.request(method, f"{api_base}{path}", headers=headers, timeout=TIMEOUT, **kw)
     except requests.RequestException:
         return None
 
@@ -413,7 +183,6 @@ def jwt_claims(token):
 
 
 def start_session(data):
-    """Store token and build a complete user profile (fixes the 'User' placeholder)."""
     st.session_state.token = data.get("access_token") or data.get("token")
     user = dict(data.get("user") or data.get("data") or {})
     if not (user.get("name") or user.get("full_name")):
@@ -476,18 +245,27 @@ def answer_of(res):
 
 
 # ============================================================ UI HELPERS
+def crumb(page_label):
+    u = st.session_state.user or {}
+    online = backend_online()
+    st.markdown(f'''<div class="crumb"><div class="path"><b>Enterprise AI</b> / {html.escape(page_label)}</div>
+        <div class="right"><span style="color:var(--muted);font-size:13px">{html.escape(u.get("email", ""))}</span>
+        <span class="connected"><span class="dot"></span>{"Connected" if online else "Offline"}</span></div></div>''',
+               unsafe_allow_html=True)
+    theme_toggle()
+
+
 def hero(title, sub):
     st.markdown(f'<div class="hero"><h1>{html.escape(title)}</h1><p>{html.escape(sub)}</p></div>', unsafe_allow_html=True)
 
 
 def metric(icon, value, label):
-    return (f'<div class="metric"><div class="ico">{icon}</div>'
-            f'<div class="num">{value}</div><div class="lbl">{label}</div></div>')
+    return f'<div class="metric"><div class="ico">{icon}</div><div class="num">{value}</div><div class="lbl">{label}</div></div>'
 
 
 def pill(status):
-    cls, label = {"READY": ("p-ready", "Ready"), "PROCESSING": ("p-proc", "Processing"),
-                  "FAILED": ("p-fail", "Failed")}.get(status, ("p-other", status.title()))
+    m = {"READY": ("p-ready", "Ready"), "PROCESSING": ("p-proc", "Processing"), "FAILED": ("p-fail", "Failed")}
+    cls, label = m.get(status, ("p-other", status.title()))
     return f'<span class="pill {cls}">{label}</span>'
 
 
@@ -498,33 +276,42 @@ def empty(title, text):
 def show_sources(sources):
     if not sources:
         return
-    with st.expander(f"📚 {len(sources)} source(s) used"):
-        for s in sources:
-            if isinstance(s, dict):
-                pg = s.get("page_number")
-                st.markdown(f"📄 **{s.get('filename', 'Document')}**" + (f" · page {pg}" if pg else ""))
-            else:
-                st.markdown(f"📄 {s}")
+    rows = ""
+    for s in sources:
+        if isinstance(s, dict):
+            fn, pg = html.escape(s.get("filename", "Document")), s.get("page_number")
+            pg_html = f'<span class="pg">Page {pg}</span>' if pg else ""
+        else:
+            fn, pg_html = html.escape(str(s)), ""
+        rows += f'<div class="citecard"><span class="fn">📄 {fn}</span>{pg_html}</div>'
+    st.markdown(f'<div class="citebox"><b style="font-size:12.5px">📚 {len(sources)} source(s) used</b>{rows}</div>',
+               unsafe_allow_html=True)
 
 
 # ============================================================ AUTH
 def auth_page():
-    left, right = st.columns([1.15, 1], gap="large")
+    theme_toggle()
     online = backend_online()
+    left, right = st.columns([1.15, 1], gap="large")
     with left:
         st.markdown(f"""
-        <div class="auth-shell">
-          <div class="auth-brand">✦ Enterprise AI</div>
-          <div style="margin-top:24px" class="auth-badge">● AI KNOWLEDGE WORKSPACE</div>
-          <h1 class="auth-title">
+        <div style="background:#12131f;border-radius:20px;padding:40px 34px;height:100%;color:#fff">
+          <div style="display:flex;align-items:center;gap:8px;font-weight:800;font-size:18px;margin-bottom:26px">
+            ✨ Enterprise AI</div>
+          <span style="display:inline-block;background:rgba(109,91,255,.25);color:#c7c1ff;font-size:11.5px;font-weight:700;
+            padding:5px 12px;border-radius:999px;margin-bottom:18px">● AI KNOWLEDGE WORKSPACE</span>
+          <h1 style="font-size:42px;font-weight:800;line-height:1.12;margin:0 0 16px;color:#fff">
             Answers from your company's documents, in seconds.</h1>
-          <p style="color:#b6bed2;font-size:17px;max-width:520px">Upload your policies, handbooks and reports.
-            Ask a question and get a sourced answer, with access limited to what you are allowed to see.</p>
-          <div class="bullet"><i>🔒</i><div><b>Role-based access</b><span>Every answer respects document permissions.</span></div></div>
-          <div class="bullet"><i>📚</i><div><b>Cited answers</b><span>See the exact file and page behind each response.</span></div></div>
-          <div class="bullet"><i>⚡</i><div><b>Ready in minutes</b><span>Drop in PDFs and start asking right away.</span></div></div>
-          <span class="status"><span class="dot" style="background:{'#4ade80' if online else '#f87171'}"></span>
-            {'Backend online' if online else 'Backend offline'}</span>
+          <p style="color:#b7b9c9;font-size:15.5px;max-width:480px;margin-bottom:26px">Upload your policies, handbooks
+            and reports. Ask a question and get a sourced answer, with access limited to what you are allowed to see.</p>
+          <div style="display:flex;gap:12px;margin:16px 0"><div style="font-size:18px">🔒</div>
+            <div><b style="color:#fff">Role-based access</b><div style="color:#9295ad;font-size:13.5px">Every answer respects document permissions.</div></div></div>
+          <div style="display:flex;gap:12px;margin:16px 0"><div style="font-size:18px">📖</div>
+            <div><b style="color:#fff">Cited answers</b><div style="color:#9295ad;font-size:13.5px">See the exact file and page behind each response.</div></div></div>
+          <div style="display:flex;gap:12px;margin:16px 0 26px"><div style="font-size:18px">⚡</div>
+            <div><b style="color:#fff">Ready in minutes</b><div style="color:#9295ad;font-size:13.5px">Drop in PDFs and start asking right away.</div></div></div>
+          <div style="color:{'#4ade80' if online else '#ff8a8a'};font-size:13px;font-weight:600">
+            ● {"Backend online" if online else "Backend offline"}</div>
         </div>""", unsafe_allow_html=True)
         if not online:
             st.code("uvicorn app.main:app --reload", language="powershell")
@@ -536,7 +323,7 @@ def auth_page():
             t_pw, t_otp, t_reg = st.tabs(["Password", "Email code", "Register"])
 
             with t_pw:
-                email = st.text_input("Email", key="login_email")
+                email = st.text_input("Email", key="login_email", placeholder="you@company.com")
                 pw = st.text_input("Password", type="password", key="login_password")
                 if st.button("Sign in", type="primary", use_container_width=True):
                     if not email or not pw:
@@ -586,78 +373,94 @@ def sidebar():
     u = st.session_state.user or {}
     role = str(u.get("role", "EMPLOYEE")).upper()
     is_admin = role in ("ADMIN", "SUPER_ADMIN")
-    cls = "admin" if is_admin else "student" if role == "STUDENT" else ""
     with st.sidebar:
-        st.markdown('<div class="brand">🤖 Enterprise AI<span>Knowledge &amp; Document Intelligence</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="brand">✨ Enterprise AI<span>Knowledge &amp; Document Intelligence</span></div>', unsafe_allow_html=True)
         st.write("")
-        st.markdown(f"""<div style="display:flex;gap:12px;align-items:center;padding:14px;border:1px solid var(--line);
-            border-radius:16px;background:var(--card)"><div class="avatar">{html.escape(u.get('name', 'U')[:1].upper())}</div>
-            <div style="min-width:0"><b>{html.escape(u.get('name', 'User'))}</b>
-            <div style="color:#70757a !important;font-size:12px;overflow:hidden;text-overflow:ellipsis">{html.escape(u.get('email', ''))}</div>
-            <span class="role {cls}" style="margin-top:6px">{role.replace('_', ' ').title()}</span></div></div>""",
-                    unsafe_allow_html=True)
+        st.markdown(f"""<div class="sideprofile"><div class="sideavatar">{html.escape(u.get('name', 'U')[:1].upper())}</div>
+            <div style="min-width:0"><b style="font-size:13.5px">{html.escape(u.get('name', 'User'))}</b>
+            <div style="color:var(--muted);font-size:11.5px;overflow:hidden;text-overflow:ellipsis">{html.escape(u.get('email', ''))}</div>
+            <span class="role" style="margin-top:5px">{role.title()}</span></div></div>""", unsafe_allow_html=True)
         st.write("")
-        st.radio("Navigation", PAGES + ([ADMIN_PAGE] if is_admin else []), key="nav", label_visibility="collapsed")
+        options = PAGES + ([ADMIN_PAGE] if is_admin else [])
+        labels = [f"{ICONS_NAV[p]}  {p}" for p in options]
+        picked = st.radio("Navigation", labels, index=options.index(st.session_state.nav)
+                          if st.session_state.nav in options else 0, label_visibility="collapsed")
+        st.session_state.nav = options[labels.index(picked)]
         st.divider()
-        if st.button("Sign out", use_container_width=True):
+        if st.button("↩ Sign out", use_container_width=True):
+            theme = st.session_state.theme
             st.session_state.clear()
+            st.session_state.theme = theme
             st.rerun()
 
 
 # ============================================================ PAGES
 def dashboard_page():
+    crumb("Dashboard")
     u = st.session_state.user or {}
     first = str(u.get("name", "there")).split()[0]
-    hero(f"Welcome back, {first}", "Upload documents, ask questions and get answers with sources, all in one secure workspace.")
+    hero(f"Welcome back, {first}", "Upload documents, ask questions and get answers with sources — all in one secure workspace.")
+
     docs = load_documents()
     ready = sum(status_of(d) == "READY" for d in docs)
     busy = sum(status_of(d) == "PROCESSING" for d in docs)
-    for col, (i, v, l) in zip(st.columns(4), [("📄", len(docs), "Documents"), ("✅", ready, "Ready to query"),
-                                              ("⏳", busy, "Processing"), ("💬", len(st.session_state.messages), "Questions asked")]):
+    cols = st.columns(4)
+    data = [("📄", len(docs), "Documents"), ("✅", ready, "Ready to query"),
+           ("⏳", busy, "Processing"), ("💬", len(st.session_state.messages), "Questions asked")]
+    for col, (i, v, l) in zip(cols, data):
         col.markdown(metric(i, v, l), unsafe_allow_html=True)
 
-    st.markdown("### Get started")
-    cards = [("📄 Upload documents", "Add PDFs and we index them for search.", "Upload documents", "📄 Documents"),
-             ("💬 Ask your documents", "Get direct answers with page-level sources.", "Start chatting", "💬 AI Chat"),
-             ("🧭 Get guided", "Walk through processes and policies step by step.", "Open AI Guide", "🧭 AI Guide")]
-    for col, (t, d, btn, page) in zip(st.columns(3), cards):
+    st.write("")
+    st.markdown("##### Get started")
+    cards = [("⬆️", "Upload documents", "Add PDFs and we index them page by page for search.", "Go to Documents", "Documents"),
+            ("💬", "Ask your documents", "Get direct answers with page-level citations.", "Open AI Chat", "AI Chat"),
+            ("🧭", "Get guided", "Walk through processes and policies step by step.", "Open AI Guide", "AI Guide")]
+    for col, (icon, t, d, btn, page) in zip(st.columns(3), cards):
         with col:
-            st.markdown(f'<div class="feature"><h4>{t}</h4><p>{d}</p></div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="gscard"><div class="ico">{icon}</div><div class="t">{t}</div><div class="d">{d}</div></div>',
+                       unsafe_allow_html=True)
+            st.write("")
             st.button(btn, key=f"qa_{page}", use_container_width=True, on_click=go, args=(page,))
 
     if docs:
-        st.markdown("### Recent documents")
+        st.write("")
+        st.markdown("##### Recent documents")
         for d in docs[:4]:
-            st.markdown(f'<div class="doc"><span class="name">📄 {html.escape(d.get("filename", "Document"))}</span>'
-                        f'{pill(status_of(d))}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="doccard"><div class="left"><div class="ico">📄</div>'
+                        f'<div class="name">{html.escape(d.get("filename", "Document"))}</div></div>{pill(status_of(d))}</div>',
+                       unsafe_allow_html=True)
 
 
 @st.fragment(run_every="5s")
 def document_list():
     docs = load_documents()
-    st.markdown("### Your documents")
+    st.markdown("##### Your documents")
     if not docs:
         empty("No documents yet", "Upload your first PDF above to get started.")
         return
     for d in docs:
-        c1, c2 = st.columns([8, 1.3], vertical_alignment="center")
-        status, pages = status_of(d), d.get("page_count")
-        extra = f'<span class="meta">{pages} pages</span>' if pages else ""
-        errmsg = f'<div class="meta" style="color:#f87171">{html.escape(str(d.get("error_message")))}</div>' \
-            if status == "FAILED" and d.get("error_message") else ""
-        c1.markdown(f'<div class="doc"><div class="name">📄 {html.escape(d.get("filename", "Unknown document"))}{errmsg}</div>'
-                    f'{extra}{pill(status)}</div>', unsafe_allow_html=True)
-        if did(d) and c2.button("Delete", key=f"del_{did(d)}", use_container_width=True):
-            r = call("delete", f"/api/v1/documents/{did(d)}")
-            if r is not None and r.status_code in (200, 204):
-                st.rerun()
-            else:
-                st.error("You are not authorized to delete this document.")
+        status, pages, name = status_of(d), d.get("page_count"), html.escape(d.get("filename", "Unknown document"))
+        meta = f'{pages} pages · ' if pages else ""
+        errmsg = (f'<div class="meta" style="color:var(--err-ink)">{html.escape(str(d.get("error_message")))}</div>'
+                 if status == "FAILED" and d.get("error_message") else "")
+        c1, c2 = st.columns([9, 1], vertical_alignment="center")
+        with c1:
+            st.markdown(f'''<div class="doccard"><div class="left"><div class="ico">📄</div>
+                <div><div class="name">{name}</div><div class="meta">{meta}{status.title()}</div>{errmsg}</div>
+                </div>{pill(status)}</div>''', unsafe_allow_html=True)
+        with c2:
+            if did(d) and st.button("🗑", key=f"del_{did(d)}", help="Delete"):
+                r = call("delete", f"/api/v1/documents/{did(d)}")
+                if r is not None and r.status_code in (200, 204):
+                    st.rerun()
+                else:
+                    st.error("You are not authorized to delete this document.")
 
 
 def documents_page():
-    hero("Documents", "Upload PDFs to build your searchable knowledge base.")
-    files = st.file_uploader("Drag and drop PDF files here", type=["pdf"], accept_multiple_files=True)
+    crumb("Documents")
+    hero("Documents", "Upload PDFs to build your searchable knowledge base. Text is extracted per page, so every answer can cite its source.")
+    files = st.file_uploader("Drag & drop PDFs here, or browse", type=["pdf"], accept_multiple_files=True)
     if files:
         st.caption(f"{len(files)} file(s) selected: " + ", ".join(f"{f.name} ({f.size / 1024:.0f} KB)" for f in files))
         if st.button("Upload and index", type="primary", use_container_width=True):
@@ -675,54 +478,78 @@ def documents_page():
 
 
 def chat_page():
-    hero("AI Document Chat", "Ask a question and get an answer grounded in your selected documents.")
+    crumb("AI Chat")
     docs = load_documents()
     if not docs:
+        st.markdown("### AI Document Chat")
         empty("Nothing to search yet", "Upload at least one PDF, then come back to ask questions.")
         return
     ready = {did(d): d for d in docs if status_of(d) == "READY" and did(d)}
-    if not ready:
-        st.warning("Your documents are still processing or have failed.")
-        return
-    st.session_state.setdefault("chat_docs", list(ready))
-    st.session_state.chat_docs = [i for i in st.session_state.chat_docs if i in ready]
-    selected = st.multiselect("Search in", list(ready), key="chat_docs",
-                              format_func=lambda i: ready[i].get("filename", "Document"))
 
-    if not st.session_state.messages:
-        empty("Ask your first question", "For example: What is our annual leave policy?")
-    for m in st.session_state.messages:
-        with st.chat_message("user"):
-            st.write(m["question"])
-        with st.chat_message("assistant", avatar="🤖"):
-            st.markdown(m["answer"])
-            show_sources(m.get("sources"))
+    left, right = st.columns([1, 2.4], gap="medium")
+    with left:
+        with st.container(border=True):
+            st.markdown(f"**Search in**")
+            st.caption(f"{len(st.session_state.get('chat_docs', []))} of {len(ready)} ready documents selected")
+            c1, c2 = st.columns(2)
+            if c1.button("Select all", use_container_width=True):
+                st.session_state.chat_docs = list(ready)
+                st.rerun()
+            if c2.button("Clear", use_container_width=True):
+                st.session_state.chat_docs = []
+                st.rerun()
+            st.session_state.setdefault("chat_docs", list(ready))
+            st.session_state.chat_docs = [i for i in st.session_state.chat_docs if i in ready]
+            for i, d in ready.items():
+                checked = st.checkbox(d.get("filename", "Document"), value=i in st.session_state.chat_docs, key=f"cd_{i}")
+                if checked and i not in st.session_state.chat_docs:
+                    st.session_state.chat_docs.append(i)
+                elif not checked and i in st.session_state.chat_docs:
+                    st.session_state.chat_docs.remove(i)
+            if not ready:
+                st.caption("No ready documents yet.")
 
-    q = st.chat_input("Ask a question about your documents")
-    if q:
-        if not selected:
-            st.warning("Select at least one document.")
-            return
-        with st.spinner("Searching your documents..."):
-            res = ask_ai(q, selected)
-        if res is None:
-            st.error("Unable to connect to the AI backend.")
-        elif "error" in res:
-            st.error(res["error"])
-        else:
-            st.session_state.messages.append({"question": q, "answer": answer_of(res), "sources": res.get("sources", [])})
-            st.rerun()
+    with right:
+        with st.container(border=True):
+            st.markdown("**💬 AI Document Chat**")
+            st.caption("Answers are grounded in the selected documents and cite file + page")
+            if not st.session_state.messages:
+                empty("Ask your first question", "For example: What is our annual leave policy?")
+            for m in st.session_state.messages:
+                st.markdown(f'<div class="bubble-user">{html.escape(m["question"])}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="bubble-ai">🤖 {m["answer"]}</div>', unsafe_allow_html=True)
+                show_sources(m.get("sources"))
+                st.write("")
+            q = st.chat_input("Ask a question about your documents...")
+            if q:
+                if not st.session_state.chat_docs:
+                    st.warning("Select at least one document.")
+                else:
+                    with st.spinner("Searching your documents..."):
+                        res = ask_ai(q, st.session_state.chat_docs)
+                    if res is None:
+                        st.error("Unable to connect to the AI backend.")
+                    elif "error" in res:
+                        st.error(res["error"])
+                    else:
+                        st.session_state.messages.append({"question": q, "answer": answer_of(res), "sources": res.get("sources", [])})
+                        st.rerun()
 
 
 def guide_page():
-    hero("AI Guide", "Describe what you need to do and get step-by-step guidance from your company's documents.")
-    st.caption("Try one of these")
-    ideas = ["Guide me through employee onboarding", "How do I request leave?", "Summarize our security policy"]
-    for col, idea in zip(st.columns(3), ideas):
-        col.button(idea, key=f"idea_{idea}", use_container_width=True, on_click=lambda i=idea: st.session_state.update(guide_q=i))
+    crumb("AI Guide")
+    st.markdown("### AI Guide")
+    st.caption("Describe what you need to do and get step-by-step guidance grounded in your company's documents.")
+    st.write("")
+    st.markdown("**TRY ONE OF THESE**")
+    ideas = [("Guide me through employee onboarding",), ("How do I request leave?",), ("Summarize our security policy",)]
+    cols = st.columns(len(ideas))
+    for col, (prompt,) in zip(cols, ideas):
+        if col.button(f"✨ {prompt}", key=f"idea_{prompt}", use_container_width=True):
+            st.session_state.guide_q = prompt
     question = st.text_area("What do you need help with?", key="guide_q", height=110,
                             placeholder="Example: Guide me through the employee onboarding process.")
-    if st.button("Get guidance", type="primary", use_container_width=True):
+    if st.button("☰  Get guidance", type="primary", use_container_width=True):
         if not question.strip():
             st.warning("Tell the AI what you need help with.")
             return
@@ -737,22 +564,24 @@ def guide_page():
             st.session_state.guide_result = res
     res = st.session_state.guide_result
     if res:
+        st.write("")
         with st.container(border=True):
-            st.markdown("### 🧭 Guidance")
+            st.markdown("**🧭 Guidance**")
             st.markdown(res.get("answer") or res.get("response") or "No guidance returned.")
             show_sources(res.get("sources"))
 
 
 def history_page():
-    hero("Conversation history", "Everything you have asked in this session.")
+    crumb("History")
+    st.markdown("### Conversation history")
+    st.caption("Everything you have asked, with the sources behind each answer.")
+    st.write("")
     if not st.session_state.messages:
         empty("No conversations yet", "Your questions and answers will appear here.")
         return
-    for i, m in enumerate(reversed(st.session_state.messages), 1):
-        with st.expander(f"{i}. {m['question'][:70]}"):
-            st.markdown("**Question**")
-            st.write(m["question"])
-            st.markdown("**Answer**")
+    for m in reversed(st.session_state.messages):
+        with st.container(border=True):
+            st.markdown(f"**{m['question']}**")
             st.markdown(m["answer"])
             show_sources(m.get("sources"))
 
@@ -761,16 +590,19 @@ def admin_page():
     if str((st.session_state.user or {}).get("role", "")).upper() not in ("ADMIN", "SUPER_ADMIN"):
         st.error("You are not authorized to access the Admin Dashboard.")
         return
+    crumb("Admin")
     hero("Admin dashboard", "Monitor document processing and system health.")
     docs = load_documents()
     count = lambda s: sum(status_of(d) == s for d in docs)
-    for col, (i, v, l) in zip(st.columns(4), [("📄", len(docs), "Documents"), ("✅", count("READY"), "Ready"),
-                                              ("⏳", count("PROCESSING"), "Processing"), ("⚠️", count("FAILED"), "Failed")]):
+    cols = st.columns(4)
+    data = [("📄", len(docs), "Documents"), ("✅", count("READY"), "Ready"),
+           ("⏳", count("PROCESSING"), "Processing"), ("⚠️", count("FAILED"), "Failed")]
+    for col, (i, v, l) in zip(cols, data):
         col.markdown(metric(i, v, l), unsafe_allow_html=True)
-    st.markdown("### System")
+    st.write("")
     online = backend_online()
-    st.markdown(f'<span class="status"><span class="dot" style="background:{"#4ade80" if online else "#f87171"}"></span>'
-                f'{"Backend online" if online else "Backend offline"} · {html.escape(API)}</span>', unsafe_allow_html=True)
+    st.markdown(f'<span class="connected"><span class="dot"></span>{"Backend online" if online else "Backend offline"} · {html.escape(API)}</span>',
+               unsafe_allow_html=True)
 
 
 # ============================================================ MAIN
@@ -778,39 +610,9 @@ def main():
     if not st.session_state.token:
         auth_page()
         return
-
     sidebar()
-
-    # Lightweight enterprise workspace bar.
-    u = st.session_state.user or {}
-    online = backend_online()
-    st.markdown(
-        f"""
-        <div style="display:flex;justify-content:space-between;align-items:center;
-                    padding:8px 2px 16px;border-bottom:1px solid #e8eaed;margin-bottom:22px;">
-          <div style="font-size:12px;color:#70757a;">
-            <b style="color:#3c4043;">Enterprise AI</b>
-            <span style="margin:0 7px;color:#bdc1c6;">/</span>
-            Secure knowledge workspace
-          </div>
-          <div style="display:flex;align-items:center;gap:8px;">
-            <span style="font-size:11px;color:#70757a;">
-              {html.escape(str(u.get("email","")))}
-            </span>
-            <span class="status">
-              <span class="dot" style="background:{'#188038' if online else '#d93025'}"></span>
-              {"Connected" if online else "Offline"}
-            </span>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    {"🏠 Dashboard": dashboard_page, "📄 Documents": documents_page, "💬 AI Chat": chat_page,
-     "🧭 AI Guide": guide_page, "📜 History": history_page, ADMIN_PAGE: admin_page}.get(
-        st.session_state.nav, dashboard_page
-    )()
+    {"Dashboard": dashboard_page, "Documents": documents_page, "AI Chat": chat_page,
+     "AI Guide": guide_page, "History": history_page, ADMIN_PAGE: admin_page}.get(st.session_state.nav, dashboard_page)()
 
 
 if __name__ == "__main__":

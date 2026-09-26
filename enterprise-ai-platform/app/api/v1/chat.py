@@ -161,6 +161,15 @@ async def ask(
 # Conversations (Stage 11 stubs)
 # ---------------------------------------------------------------------------
 
+@router.get("/stats", summary="Get current user's chat statistics")
+async def chat_stats(
+    current_user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    return {
+        "questions_asked": await ConversationRepository(db).count_user_messages(current_user.id),
+    }
+
 @router.get(
     "/conversations",
     response_model=ConversationListResponse,
@@ -332,6 +341,8 @@ async def agent_chat(
         user=current_user,
         confirm_action=body.confirm_action,
         pending_action=body.pending_action,
+        document_ids=body.document_ids,
+        all_authorized=body.all_authorized,
     )
 
     tool_calls = [
