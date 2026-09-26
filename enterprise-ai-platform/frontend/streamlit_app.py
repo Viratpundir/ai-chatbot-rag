@@ -6,6 +6,7 @@ from urllib.parse import urlsplit
 
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 
 API = os.getenv("API_BASE_URL", "").rstrip("/")
 TIMEOUT = 30
@@ -13,9 +14,32 @@ TIMEOUT = 30
 st.set_page_config(page_title="Enterprise AI", page_icon="✨", layout="wide", initial_sidebar_state="expanded")
 
 # ============================================================ STATE
-DEFAULTS = {"token": None, "user": None, "messages": [], "otp_requested": False, "guide_result": None, "theme": "light"}
+DEFAULTS = {"token": None, "refresh_token": None, "user": None, "messages": [],
+            "conversation_id": None, "otp_requested": False, "guide_result": None, "theme": "light"}
 for k, v in DEFAULTS.items():
     st.session_state.setdefault(k, v)
+
+try:
+        saved_theme = st.context.cookies.get("enterprise-ai-theme", "")
+except Exception:
+        saved_theme = ""
+requested_theme = str(st.query_params.get("theme", saved_theme or st.session_state.theme)).lower()
+if requested_theme in {"light", "dark"}:
+        st.session_state.theme = requested_theme
+components.html("""
+<script>
+try {
+    const queryTheme = new URLSearchParams(window.parent.location.search).get("theme");
+    const theme = queryTheme === "light" || queryTheme === "dark"
+        ? queryTheme
+        : window.parent.localStorage.getItem("enterprise-ai-theme");
+    if (theme === "light" || theme === "dark") {
+        window.parent.localStorage.setItem("enterprise-ai-theme", theme);
+        window.parent.document.cookie = `enterprise-ai-theme=${theme}; path=/; max-age=31536000; SameSite=Lax`;
+    }
+} catch (_) {}
+</script>
+""", height=0)
 
 PAGES = ["Dashboard", "Documents", "AI Chat", "AI Guide", "History"]
 ADMIN_PAGE = "Admin"
@@ -28,18 +52,19 @@ def go(page):
 
 
 # ============================================================ THEME
-LIGHT = dict(bg="#faf6f0", surface="#fffdfa", surface2="#f6f1ea", border="#ece4d8", ink="#211c14",
-            muted="#8a7f6e", primary="#6d5bff", primary_ink="#ffffff", chip="#f1ecff", ok="#eaf6ec", ok_ink="#1a9a52",
-            warn="#fdf3e3", warn_ink="#b37700", err="#fbeae8", err_ink="#d1373f", hero="linear-gradient(120deg,#f3efff,#f2f7ef)")
-DARK = dict(bg="#0e0f17", surface="#161826", surface2="#12141f", border="#272a3a", ink="#f2f2f8",
-           muted="#9298b0", primary="#8677ff", primary_ink="#ffffff", chip="#232544", ok="#123524", ok_ink="#4ade80",
-           warn="#332a12", warn_ink="#ffc966", err="#3a1a1c", err_ink="#ff8a8a", hero="linear-gradient(120deg,#1c1a35,#122a2a)")
+LIGHT = dict(bg="#f8f9fc", surface="#ffffff", surface2="#f5f6fa", border="#e5e7eb", ink="#202124",
+            muted="#6b7280", primary="#635bff", primary_ink="#ffffff", chip="#eeebff", ok="#eaf7ee", ok_ink="#188038",
+            warn="#fff4e5", warn_ink="#b06000", err="#fcebea", err_ink="#d93025", hero="linear-gradient(120deg,#f5f4ff,#eefbf8)")
+DARK = dict(bg="#0b1020", surface="#111827", surface2="#172033", border="#263244", ink="#f8fafc",
+           muted="#94a3b8", primary="#8b7cff", primary_ink="#ffffff", chip="#29235f", ok="#123524", ok_ink="#22c55e",
+           warn="#332a12", warn_ink="#f59e0b", err="#3a1a1c", err_ink="#ef4444", hero="linear-gradient(120deg,#151d3b,#122a2a)")
 
 T = DARK if st.session_state.theme == "dark" else LIGHT
 
 st.markdown(f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200');
 :root{{--bg:{T['bg']};--surface:{T['surface']};--surface2:{T['surface2']};--border:{T['border']};--ink:{T['ink']};
  --muted:{T['muted']};--primary:{T['primary']};--pink:{T['primary_ink']};--chip:{T['chip']};
  --ok:{T['ok']};--ok-ink:{T['ok_ink']};--warn:{T['warn']};--warn-ink:{T['warn_ink']};--err:{T['err']};--err-ink:{T['err_ink']};--hero:{T['hero']}}}
@@ -125,17 +150,28 @@ section[data-testid="stSidebar"] [role="radiogroup"] label:hover{{background:var
 section[data-testid="stSidebar"] [role="radiogroup"] label:has(input:checked){{background:var(--chip);color:var(--primary)}}
 section[data-testid="stSidebar"] [role="radiogroup"] label>div:first-child{{display:none}}
 .stCaption,[data-testid="stCaptionContainer"]{{color:var(--muted)!important}}
+.msi{{font-family:'Material Symbols Outlined';font-weight:400;font-style:normal;font-size:20px;line-height:1;
+ display:inline-block;vertical-align:middle;-webkit-font-feature-settings:'liga';font-feature-settings:'liga'}}
+.metric .ico .msi,.gscard .ico .msi,.doccard .ico .msi{{font-size:21px}}
 </style>
 """, unsafe_allow_html=True)
 
 
-def theme_toggle():
-    c1, c2 = st.columns([10, 1])
-    with c2:
-        icon = "🌙" if st.session_state.theme == "light" else "☀️"
-        if st.button(icon, key="theme_toggle", help="Switch theme"):
-            st.session_state.theme = "dark" if st.session_state.theme == "light" else "light"
-            st.rerun()
+def msi(name: str, fill: bool = False) -> str:
+    class_name = "msi fill" if fill else "msi"
+    return f'<span class="{class_name}">{html.escape(name)}</span>'
+
+
+def theme_toggle(button_column=None):
+    if button_column is None:
+        _, button_column = st.columns([10, 1])
+    icon = "🌙" if st.session_state.theme == "light" else "☀️"
+    label = "Switch to dark mode" if st.session_state.theme == "light" else "Switch to light mode"
+    if button_column.button(icon, key="theme_toggle", help=label):
+        theme = "dark" if st.session_state.theme == "light" else "light"
+        st.session_state.theme = theme
+        st.query_params["theme"] = theme
+        st.rerun()
 
 
 # ============================================================ API
@@ -164,7 +200,15 @@ def call(method, path, **kw):
 
 def err(resp, default):
     try:
-        return str(resp.json().get("detail", default))
+        body = resp.json()
+        if body.get("detail"):
+            return str(body["detail"])
+        error = body.get("error")
+        if isinstance(error, dict) and error.get("message"):
+            return str(error["message"])
+        if isinstance(error, str):
+            return error
+        return default
     except Exception:
         return default
 
@@ -172,6 +216,17 @@ def err(resp, default):
 def backend_online():
     r = call("get", "/api/v1/health")
     return r is not None and r.status_code == 200
+
+
+@st.fragment(run_every="15s")
+def connection_status():
+    online = backend_online()
+    color = "#188038" if online else "#d93025"
+    label = "Connected" if online else "Offline"
+    st.markdown(
+        f'<span class="connected"><span class="dot" style="background:{color}"></span>{label}</span>',
+        unsafe_allow_html=True,
+    )
 
 
 def jwt_claims(token):
@@ -184,6 +239,7 @@ def jwt_claims(token):
 
 def start_session(data):
     st.session_state.token = data.get("access_token") or data.get("token")
+    st.session_state.refresh_token = data.get("refresh_token")
     user = dict(data.get("user") or data.get("data") or {})
     if not (user.get("name") or user.get("full_name")):
         r = call("get", "/api/v1/auth/me")
@@ -213,23 +269,97 @@ def auth_request(path, payload, fail_msg):
 
 
 def load_documents():
-    r = call("get", "/api/v1/documents")
-    if r is None or r.status_code != 200:
-        return []
-    try:
-        d = r.json()
-        return d if isinstance(d, list) else d.get("documents", d.get("data", []))
-    except Exception:
-        return []
+    documents = []
+    page = 1
+    while True:
+        r = call("get", "/api/v1/documents", params={"page": page, "page_size": 100})
+        if r is None or r.status_code != 200:
+            return documents
+        try:
+            data = r.json()
+            if isinstance(data, list):
+                return data
+            page_documents = data.get("documents", data.get("data", []))
+            documents.extend(page_documents)
+            if len(documents) >= int(data.get("total", len(documents))) or not page_documents:
+                return documents
+            page += 1
+        except (ValueError, AttributeError, TypeError):
+            return documents
 
 
-def ask_ai(question, ids):
-    r = call("post", "/api/v1/chat/ask", json={"question": question, "document_ids": ids})
+def ask_ai(question, ids, conversation_id=None):
+    payload = {"question": question, "document_ids": ids}
+    if conversation_id:
+        payload["conversation_id"] = conversation_id
+    r = call("post", "/api/v1/chat/ask", json=payload)
     if r is None:
         return None
     if r.status_code != 200:
         return {"error": err(r, "Unable to process the question.")}
     return r.json()
+
+
+def ask_guide(message, ids):
+    r = call("post", "/api/v1/chat/agent", json={
+        "message": message,
+        "document_ids": ids,
+        "all_authorized": False,
+    })
+    if r is None:
+        return {"error": "AI Guide could not connect to the backend."}
+    if r.status_code != 200:
+        return {"error": err(r, "Unable to generate guidance.")}
+    return r.json()
+
+
+def load_chat_stats():
+    r = call("get", "/api/v1/chat/stats")
+    if r is None or r.status_code != 200:
+        return None
+    try:
+        return r.json()
+    except ValueError:
+        return None
+
+
+def load_conversations():
+    conversations = []
+    page = 1
+    while True:
+        r = call("get", "/api/v1/chat/conversations", params={"page": page, "page_size": 100})
+        if r is None or r.status_code != 200:
+            return conversations
+        try:
+            data = r.json()
+            page_items = data.get("conversations", [])
+            conversations.extend(page_items)
+            if len(conversations) >= int(data.get("total", len(conversations))) or not page_items:
+                return conversations
+            page += 1
+        except (ValueError, AttributeError, TypeError):
+            return conversations
+
+
+def load_conversation(conversation_id):
+    r = call("get", f"/api/v1/chat/conversations/{conversation_id}")
+    if r is None or r.status_code != 200:
+        return None
+    try:
+        return r.json()
+    except ValueError:
+        return None
+
+
+def load_history_records():
+    records = []
+    for conversation in load_conversations():
+        conversation_id = conversation.get("conversation_id")
+        if conversation_id:
+            detail = load_conversation(conversation_id)
+            if detail:
+                records.append(detail)
+    return records
 
 
 def did(d):
@@ -244,15 +374,22 @@ def answer_of(res):
     return res.get("answer") or res.get("response") or res.get("message") or "No answer returned."
 
 
+def display_timestamp(value):
+    return str(value).replace("T", " ").replace("Z", " UTC")[:19] if value else ""
+
+
 # ============================================================ UI HELPERS
 def crumb(page_label):
     u = st.session_state.user or {}
-    online = backend_online()
-    st.markdown(f'''<div class="crumb"><div class="path"><b>Enterprise AI</b> / {html.escape(page_label)}</div>
-        <div class="right"><span style="color:var(--muted);font-size:13px">{html.escape(u.get("email", ""))}</span>
-        <span class="connected"><span class="dot"></span>{"Connected" if online else "Offline"}</span></div></div>''',
-               unsafe_allow_html=True)
-    theme_toggle()
+    title, email, status, theme = st.columns([5, 3, 1.4, 0.6], vertical_alignment="center")
+    title.markdown(
+        f'<div class="crumb"><div class="path"><b>Enterprise AI</b> / {html.escape(page_label)}</div></div>',
+        unsafe_allow_html=True,
+    )
+    email.caption(html.escape(u.get("email", "")))
+    with status:
+        connection_status()
+    theme_toggle(theme)
 
 
 def hero(title, sub):
@@ -260,11 +397,17 @@ def hero(title, sub):
 
 
 def metric(icon, value, label):
-    return f'<div class="metric"><div class="ico">{icon}</div><div class="num">{value}</div><div class="lbl">{label}</div></div>'
+    return f'<div class="metric"><div class="ico">{msi(icon)}</div><div class="num">{value}</div><div class="lbl">{html.escape(str(label))}</div></div>'
 
 
 def pill(status):
-    m = {"READY": ("p-ready", "Ready"), "PROCESSING": ("p-proc", "Processing"), "FAILED": ("p-fail", "Failed")}
+    m = {
+        "READY": ("p-ready", "Ready"),
+        "PROCESSING": ("p-proc", "Processing"),
+        "UPLOADED": ("p-proc", "Processing"),
+        "PENDING": ("p-proc", "Processing"),
+        "FAILED": ("p-fail", "Failed"),
+    }
     cls, label = m.get(status, ("p-other", status.title()))
     return f'<span class="pill {cls}">{label}</span>'
 
@@ -276,16 +419,23 @@ def empty(title, text):
 def show_sources(sources):
     if not sources:
         return
-    rows = ""
-    for s in sources:
-        if isinstance(s, dict):
-            fn, pg = html.escape(s.get("filename", "Document")), s.get("page_number")
-            pg_html = f'<span class="pg">Page {pg}</span>' if pg else ""
-        else:
-            fn, pg_html = html.escape(str(s)), ""
-        rows += f'<div class="citecard"><span class="fn">📄 {fn}</span>{pg_html}</div>'
-    st.markdown(f'<div class="citebox"><b style="font-size:12.5px">📚 {len(sources)} source(s) used</b>{rows}</div>',
-               unsafe_allow_html=True)
+    with st.expander(f"📚 Sources used ({len(sources)})"):
+        for source in sources:
+            if not isinstance(source, dict):
+                st.write(str(source))
+                continue
+            with st.container(border=True):
+                filename = html.escape(str(source.get("filename", "Document")))
+                page = source.get("page") or source.get("page_number")
+                section = source.get("section") or source.get("subsection")
+                st.markdown(f"**📄 {filename}**" + (f" · Page {page}" if page else ""))
+                if section:
+                    st.caption(str(section))
+                if source.get("excerpt"):
+                    st.write(f"“{source['excerpt']}”")
+                for field, label in (("vector_score", "Vector"), ("hybrid_score", "Hybrid"), ("rerank_score", "Rerank")):
+                    if source.get(field) is not None:
+                        st.caption(f"{label} score: {float(source[field]):.3f}")
 
 
 # ============================================================ AUTH
@@ -295,21 +445,21 @@ def auth_page():
     left, right = st.columns([1.15, 1], gap="large")
     with left:
         st.markdown(f"""
-        <div style="background:#17141a;border-radius:20px;padding:40px 34px;height:100%;color:#fff">
+                <div style="background:radial-gradient(circle at 18% 25%,rgba(109,91,255,.22),transparent 45%),radial-gradient(circle at 80% 75%,rgba(0,194,168,.12),transparent 40%),#0d1226;border:1px solid #263244;border-radius:20px;padding:40px 34px;height:100%;color:#fff">
           <div style="display:flex;align-items:center;gap:8px;font-weight:800;font-size:18px;margin-bottom:26px">
-            ✨ Enterprise AI</div>
+                        <span style="display:inline-flex;width:38px;height:38px;align-items:center;justify-content:center;border-radius:11px;background:linear-gradient(135deg,#6d5bff,#00c2a8);font-size:20px">✦</span> Enterprise AI</div>
           <span style="display:inline-block;background:rgba(109,91,255,.25);color:#c7c1ff;font-size:11.5px;font-weight:700;
             padding:5px 12px;border-radius:999px;margin-bottom:18px">● AI KNOWLEDGE WORKSPACE</span>
-          <h1 style="font-size:42px;font-weight:800;line-height:1.12;margin:0 0 16px;color:#fff">
-            Answers from your company's documents, in seconds.</h1>
+                    <h1 style="font-size:42px;font-weight:800;line-height:1.12;margin:0 0 16px;color:#fff">
+                        Turn your document library into an expert <span style="color:#65fade">that never sleeps.</span></h1>
           <p style="color:#b7b9c9;font-size:15.5px;max-width:480px;margin-bottom:26px">Upload your policies, handbooks
             and reports. Ask a question and get a sourced answer, with access limited to what you are allowed to see.</p>
           <div style="display:flex;gap:12px;margin:16px 0"><div style="font-size:18px">🔒</div>
-            <div><b style="color:#fff">Role-based access</b><div style="color:#9295ad;font-size:13.5px">Every answer respects document permissions.</div></div></div>
+            <div><b style="color:#fff">Role-based access</b><div style="color:#9295ad;font-size:13.5px">Every answer respects permissions and security classifications.</div></div></div>
           <div style="display:flex;gap:12px;margin:16px 0"><div style="font-size:18px">📖</div>
-            <div><b style="color:#fff">Cited answers</b><div style="color:#9295ad;font-size:13.5px">See the exact file and page behind each response.</div></div></div>
+            <div><b style="color:#fff">Cited answers</b><div style="color:#9295ad;font-size:13.5px">See the source file, section, and page behind each response.</div></div></div>
           <div style="display:flex;gap:12px;margin:16px 0 26px"><div style="font-size:18px">⚡</div>
-            <div><b style="color:#fff">Ready in minutes</b><div style="color:#9295ad;font-size:13.5px">Drop in PDFs and start asking right away.</div></div></div>
+            <div><b style="color:#fff">Ready in minutes</b><div style="color:#9295ad;font-size:13.5px">Index PDFs and start asking with grounded answers.</div></div></div>
           <div style="color:{'#4ade80' if online else '#ff8a8a'};font-size:13px;font-weight:600">
             ● {"Backend online" if online else "Backend offline"}</div>
         </div>""", unsafe_allow_html=True)
@@ -388,6 +538,8 @@ def sidebar():
         st.session_state.nav = options[labels.index(picked)]
         st.divider()
         if st.button("↩ Sign out", use_container_width=True):
+            if st.session_state.refresh_token:
+                call("post", "/api/v1/auth/logout", json={"refresh_token": st.session_state.refresh_token})
             theme = st.session_state.theme
             st.session_state.clear()
             st.session_state.theme = theme
@@ -403,21 +555,23 @@ def dashboard_page():
 
     docs = load_documents()
     ready = sum(status_of(d) == "READY" for d in docs)
-    busy = sum(status_of(d) == "PROCESSING" for d in docs)
+    busy = sum(status_of(d) in {"UPLOADED", "PROCESSING", "PENDING"} for d in docs)
+    chat_stats = load_chat_stats()
+    questions = chat_stats.get("questions_asked", "—") if chat_stats else "—"
     cols = st.columns(4)
-    data = [("📄", len(docs), "Documents"), ("✅", ready, "Ready to query"),
-           ("⏳", busy, "Processing"), ("💬", len(st.session_state.messages), "Questions asked")]
+    data = [("description", len(docs), "Documents"), ("verified", ready, "Ready to query"),
+            ("sync", busy, "Processing"), ("forum", questions, "Questions asked")]
     for col, (i, v, l) in zip(cols, data):
         col.markdown(metric(i, v, l), unsafe_allow_html=True)
 
     st.write("")
     st.markdown("##### Get started")
-    cards = [("⬆️", "Upload documents", "Add PDFs and we index them page by page for search.", "Go to Documents", "Documents"),
-            ("💬", "Ask your documents", "Get direct answers with page-level citations.", "Open AI Chat", "AI Chat"),
-            ("🧭", "Get guided", "Walk through processes and policies step by step.", "Open AI Guide", "AI Guide")]
+    cards = [("cloud_upload", "Upload documents", "Add PDFs and we index them page by page for search.", "Go to Documents", "Documents"),
+            ("chat", "Ask your documents", "Get direct answers with page-level citations.", "Open AI Chat", "AI Chat"),
+            ("explore", "Get guided", "Walk through processes and policies step by step.", "Open AI Guide", "AI Guide")]
     for col, (icon, t, d, btn, page) in zip(st.columns(3), cards):
         with col:
-            st.markdown(f'<div class="gscard"><div class="ico">{icon}</div><div class="t">{t}</div><div class="d">{d}</div></div>',
+            st.markdown(f'<div class="gscard"><div class="ico">{msi(icon)}</div><div class="t">{html.escape(t)}</div><div class="d">{html.escape(d)}</div></div>',
                        unsafe_allow_html=True)
             st.write("")
             st.button(btn, key=f"qa_{page}", use_container_width=True, on_click=go, args=(page,))
@@ -426,12 +580,22 @@ def dashboard_page():
         st.write("")
         st.markdown("##### Recent documents")
         for d in docs[:4]:
-            st.markdown(f'<div class="doccard"><div class="left"><div class="ico">📄</div>'
-                        f'<div class="name">{html.escape(d.get("filename", "Document"))}</div></div>{pill(status_of(d))}</div>',
-                       unsafe_allow_html=True)
+            metadata = []
+            if d.get("file_size") is not None:
+                metadata.append(f"{d['file_size'] / (1024 * 1024):.1f} MB")
+            if d.get("page_count") is not None:
+                metadata.append(f"{d['page_count']} pages")
+            if d.get("chunk_count") is not None:
+                metadata.append(f"{d['chunk_count']} chunks")
+            if d.get("created_at"):
+                metadata.append(display_timestamp(d["created_at"]))
+            st.markdown(f'<div class="doccard"><div class="left"><div class="ico">{msi("picture_as_pdf")}</div>'
+                        f'<div><div class="name">{html.escape(d.get("filename", "Document"))}</div>'
+                        f'<div class="meta">{html.escape(" · ".join(metadata))}</div></div></div>{pill(status_of(d))}</div>',
+                        unsafe_allow_html=True)
 
 
-@st.fragment(run_every="5s")
+@st.fragment(run_every="3s")
 def document_list():
     docs = load_documents()
     st.markdown("##### Your documents")
@@ -439,41 +603,90 @@ def document_list():
         empty("No documents yet", "Upload your first PDF above to get started.")
         return
     for d in docs:
-        status, pages, name = status_of(d), d.get("page_count"), html.escape(d.get("filename", "Unknown document"))
-        meta = f'{pages} pages · ' if pages else ""
+        status = status_of(d)
+        name = html.escape(d.get("filename", "Unknown document"))
+        details = []
+        if d.get("file_size") is not None:
+            details.append(f"{d['file_size'] / (1024 * 1024):.1f} MB")
+        if d.get("page_count") is not None:
+            details.append(f"{d['page_count']} pages")
+        if d.get("chunk_count") is not None:
+            details.append(f"{d['chunk_count']} chunks")
+        if d.get("classification"):
+            details.append(str(d["classification"]).title())
+        if d.get("owner_id"):
+            user_id = (st.session_state.user or {}).get("user_id")
+            details.append("Owner: you" if d["owner_id"] == user_id else f"Owner: {str(d['owner_id'])[:8]}")
+        if d.get("created_at"):
+            details.append(f"Uploaded {display_timestamp(d['created_at'])}")
+        meta = " · ".join(details)
         errmsg = (f'<div class="meta" style="color:var(--err-ink)">{html.escape(str(d.get("error_message")))}</div>'
                  if status == "FAILED" and d.get("error_message") else "")
-        c1, c2 = st.columns([9, 1], vertical_alignment="center")
+        c1, ask_col, delete_col = st.columns([8, 1, 1], vertical_alignment="center")
         with c1:
-            st.markdown(f'''<div class="doccard"><div class="left"><div class="ico">📄</div>
-                <div><div class="name">{name}</div><div class="meta">{meta}{status.title()}</div>{errmsg}</div>
+            st.markdown(f'''<div class="doccard"><div class="left"><div class="ico">{msi("picture_as_pdf")}</div>
+                <div><div class="name">{name}</div><div class="meta">{meta}</div>{errmsg}</div>
                 </div>{pill(status)}</div>''', unsafe_allow_html=True)
-        with c2:
-            if did(d) and st.button("🗑", key=f"del_{did(d)}", help="Delete"):
-                r = call("delete", f"/api/v1/documents/{did(d)}")
-                if r is not None and r.status_code in (200, 204):
-                    st.rerun()
-                else:
-                    st.error("You are not authorized to delete this document.")
+        document_id = did(d)
+        if document_id and ask_col.button("Ask", key=f"ask-document-{document_id}", help="Ask about this document"):
+            st.session_state.chat_docs = [document_id]
+            st.session_state[f"document-scope-{document_id}"] = True
+            st.session_state.nav = "AI Chat"
+            st.rerun()
+        if document_id and delete_col.button("🗑", key=f"delete-document-{document_id}", help="Delete document"):
+            response = call("delete", f"/api/v1/documents/{document_id}")
+            if response is not None and response.status_code in (200, 204):
+                st.rerun()
+            else:
+                st.error(err(response, "You are not authorized to delete this document.") if response else "Document service is offline.")
 
 
 def documents_page():
     crumb("Documents")
-    hero("Documents", "Upload PDFs to build your searchable knowledge base. Text is extracted per page, so every answer can cite its source.")
-    files = st.file_uploader("Drag & drop PDFs here, or browse", type=["pdf"], accept_multiple_files=True)
-    if files:
-        st.caption(f"{len(files)} file(s) selected: " + ", ".join(f"{f.name} ({f.size / 1024:.0f} KB)" for f in files))
-        if st.button("Upload and index", type="primary", use_container_width=True):
-            with st.spinner("Uploading and processing..."):
-                r = call("post", "/api/v1/documents/upload",
-                         files=[("files", (f.name, f.getvalue(), "application/pdf")) for f in files])
-            if r is None:
-                st.error("Could not connect to the document service.")
-            elif r.status_code not in (200, 201, 202):
-                st.error(err(r, "Document upload failed."))
+    hero("Documents", "Upload PDFs to build your searchable knowledge base. Text is extracted per page so answers can cite their source.")
+    files = st.file_uploader(
+        "Drag and drop PDF files here, or browse",
+        type=["pdf"],
+        accept_multiple_files=True,
+        key="document-upload",
+    )
+    st.caption("Multiple files welcome. Files are parsed page by page and indexed for search.")
+    removed = st.session_state.setdefault("removed_uploads", set())
+    selected_files = [file for file in (files or []) if file.name not in removed]
+    for index, file in enumerate(selected_files):
+        file_col, remove_col = st.columns([9, 1], vertical_alignment="center")
+        file_col.markdown(
+            f'<div class="doccard"><div class="left"><div class="ico">{msi("picture_as_pdf")}</div>'
+            f'<div><div class="name">{html.escape(file.name)}</div>'
+            f'<div class="meta">{file.size / 1024:.0f} KB · PDF</div></div></div></div>',
+            unsafe_allow_html=True,
+        )
+        if remove_col.button("Remove", key=f"remove-upload-{index}", help=f"Remove {file.name}"):
+            removed.add(file.name)
+            st.rerun()
+    if selected_files and st.button("Upload & Index", key="upload-index", type="primary", use_container_width=True):
+        progress = st.progress(0, text="Preparing uploads")
+        accepted = 0
+        failures = []
+        for index, file in enumerate(selected_files, 1):
+            progress.progress((index - 1) / len(selected_files), text=f"Uploading {index} of {len(selected_files)}")
+            response = call(
+                "post",
+                "/api/v1/documents",
+                files={"file": (file.name, file.getvalue(), "application/pdf")},
+            )
+            if response is not None and response.status_code in (200, 201, 202):
+                accepted += 1
             else:
-                st.toast(f"{len(files)} document(s) uploaded", icon="✅")
-                st.rerun()
+                failure = err(response, "Upload failed.") if response else "Document service is offline."
+                failures.append((file.name, failure))
+        progress.progress(1.0, text="Upload requests complete")
+        st.session_state.removed_uploads = set()
+        for filename, message in failures:
+            st.error(f"{filename}: {message}")
+        if accepted:
+            st.toast(f"{accepted} document(s) accepted for indexing", icon="✅")
+            st.rerun()
     document_list()
 
 
@@ -485,105 +698,151 @@ def chat_page():
         empty("Nothing to search yet", "Upload at least one PDF, then come back to ask questions.")
         return
     ready = {did(d): d for d in docs if status_of(d) == "READY" and did(d)}
+    if not ready:
+        st.warning("Your documents are still processing or have failed. Ready documents will appear here.")
+        return
+    st.session_state.setdefault("chat_docs", list(ready))
+    st.session_state.chat_docs = [doc_id for doc_id in st.session_state.chat_docs if doc_id in ready]
 
-    left, right = st.columns([1, 2.4], gap="medium")
+    left, right = st.columns([4, 8], gap="large")
     with left:
         with st.container(border=True):
-            st.markdown(f"**Search in**")
-            st.caption(f"{len(st.session_state.get('chat_docs', []))} of {len(ready)} ready documents selected")
+            st.markdown("### Search in")
+            st.caption(f"{len(st.session_state.chat_docs)} of {len(ready)} ready documents selected")
             c1, c2 = st.columns(2)
-            if c1.button("Select all", use_container_width=True):
+            if c1.button("Select all", key="select-all-documents", use_container_width=True):
                 st.session_state.chat_docs = list(ready)
+                for doc_id in ready:
+                    st.session_state[f"document-scope-{doc_id}"] = True
                 st.rerun()
-            if c2.button("Clear", use_container_width=True):
+            if c2.button("Clear", key="clear-documents", use_container_width=True):
                 st.session_state.chat_docs = []
+                for doc_id in ready:
+                    st.session_state[f"document-scope-{doc_id}"] = False
                 st.rerun()
-            st.session_state.setdefault("chat_docs", list(ready))
-            st.session_state.chat_docs = [i for i in st.session_state.chat_docs if i in ready]
-            for i, d in ready.items():
-                checked = st.checkbox(d.get("filename", "Document"), value=i in st.session_state.chat_docs, key=f"cd_{i}")
-                if checked and i not in st.session_state.chat_docs:
-                    st.session_state.chat_docs.append(i)
-                elif not checked and i in st.session_state.chat_docs:
-                    st.session_state.chat_docs.remove(i)
-            if not ready:
-                st.caption("No ready documents yet.")
+            for doc_id, document in ready.items():
+                checkbox_key = f"document-scope-{doc_id}"
+                st.session_state.setdefault(checkbox_key, doc_id in st.session_state.chat_docs)
+                st.checkbox(document.get("filename", "Document"), key=checkbox_key)
+            selected = [
+                doc_id for doc_id in ready
+                if st.session_state.get(f"document-scope-{doc_id}", False)
+            ]
+            st.session_state.chat_docs = selected
 
     with right:
-        with st.container(border=True):
-            st.markdown("**💬 AI Document Chat**")
-            st.caption("Answers are grounded in the selected documents and cite file + page")
-            if not st.session_state.messages:
-                empty("Ask your first question", "For example: What is our annual leave policy?")
-            for m in st.session_state.messages:
-                st.markdown(f'<div class="bubble-user">{html.escape(m["question"])}</div>', unsafe_allow_html=True)
-                st.markdown(f'<div class="bubble-ai">🤖 {m["answer"]}</div>', unsafe_allow_html=True)
-                show_sources(m.get("sources"))
-                st.write("")
-            q = st.chat_input("Ask a question about your documents...")
-            if q:
-                if not st.session_state.chat_docs:
-                    st.warning("Select at least one document.")
-                else:
-                    with st.spinner("Searching your documents..."):
-                        res = ask_ai(q, st.session_state.chat_docs)
-                    if res is None:
-                        st.error("Unable to connect to the AI backend.")
-                    elif "error" in res:
-                        st.error(res["error"])
-                    else:
-                        st.session_state.messages.append({"question": q, "answer": answer_of(res), "sources": res.get("sources", [])})
-                        st.rerun()
+        st.markdown("### AI Document Chat")
+        selected_names = [ready[doc_id].get("filename", "Document") for doc_id in selected]
+        st.caption("Answers are grounded in the selected documents and cite file + page.")
+        if selected_names:
+            st.markdown("**Searching in:** " + " · ".join(html.escape(name) for name in selected_names))
+        else:
+            st.warning("Select at least one ready document to start searching.")
+        top_actions, _ = st.columns([2, 8])
+        if top_actions.button("New conversation", key="new-conversation"):
+            st.session_state.conversation_id = None
+            st.session_state.messages = []
+            st.rerun()
+        if not st.session_state.messages:
+            empty("Ask your first question", "Your answer will be grounded only in the selected documents.")
+        for message in st.session_state.messages:
+            with st.chat_message("user"):
+                st.write(message["question"])
+            with st.chat_message("assistant", avatar="✦"):
+                st.markdown(message["answer"])
+                show_sources(message.get("citations", []))
+
+        question = st.chat_input("Ask a question about your documents...", key="chat-input")
+        if question:
+            if not selected:
+                st.warning("Select at least one document.")
+                return
+            with st.spinner("Searching the selected documents..."):
+                response = ask_ai(question, selected, st.session_state.conversation_id)
+            if response is None:
+                st.error("The AI service is offline. Your question has not been sent.")
+            elif "error" in response:
+                st.error(response["error"])
+            else:
+                st.session_state.conversation_id = response.get("conversation_id")
+                answer = answer_of(response)
+                if not response.get("has_answer", True):
+                    answer = "I couldn't find a sufficiently relevant answer in the selected documents."
+                st.session_state.messages.append({
+                    "question": question,
+                    "answer": answer,
+                    "citations": response.get("citations", []),
+                })
+                st.rerun()
 
 
 def guide_page():
     crumb("AI Guide")
-    st.markdown("### AI Guide")
-    st.caption("Describe what you need to do and get step-by-step guidance grounded in your company's documents.")
-    st.write("")
-    st.markdown("**TRY ONE OF THESE**")
-    ideas = [("Guide me through employee onboarding",), ("How do I request leave?",), ("Summarize our security policy",)]
-    cols = st.columns(len(ideas))
-    for col, (prompt,) in zip(cols, ideas):
-        if col.button(f"✨ {prompt}", key=f"idea_{prompt}", use_container_width=True):
+    hero("AI Guide", "Describe what you need to do and receive guidance grounded in your authorized documents.")
+    ideas = [
+        "Guide me through employee onboarding",
+        "How do I request leave?",
+        "Summarize our security policy",
+    ]
+    for index, (column, prompt) in enumerate(zip(st.columns(3), ideas)):
+        if column.button(prompt, key=f"guide-preset-{index}", use_container_width=True):
             st.session_state.guide_q = prompt
-    question = st.text_area("What do you need help with?", key="guide_q", height=110,
-                            placeholder="Example: Guide me through the employee onboarding process.")
-    if st.button("☰  Get guidance", type="primary", use_container_width=True):
+    question = st.text_area(
+        "Describe your task or scenario",
+        key="guide_q",
+        height=120,
+        placeholder="What process or policy do you need help with?",
+    )
+    if st.button("Get guidance", key="get-guidance", type="primary", use_container_width=True):
         if not question.strip():
             st.warning("Tell the AI what you need help with.")
             return
-        ids = [did(d) for d in load_documents() if status_of(d) == "READY" and did(d)]
-        with st.spinner("Analyzing your documents..."):
-            res = ask_ai(question, ids)
-        if res is None:
-            st.error("AI Guide could not connect to the backend.")
-        elif "error" in res:
-            st.error(res["error"])
+        documents = load_documents()
+        ready_ids = [did(doc) for doc in documents if status_of(doc) == "READY" and did(doc)]
+        if not ready_ids:
+            st.warning("No ready documents are available to guide you yet.")
+            return
+        with st.spinner("Searching authorized documents for guidance..."):
+            result = ask_guide(question, ready_ids)
+        if "error" in result:
+            st.error(result["error"])
         else:
-            st.session_state.guide_result = res
-    res = st.session_state.guide_result
-    if res:
-        st.write("")
+            st.session_state.guide_result = result
+    result = st.session_state.guide_result
+    if result:
         with st.container(border=True):
-            st.markdown("**🧭 Guidance**")
-            st.markdown(res.get("answer") or res.get("response") or "No guidance returned.")
-            show_sources(res.get("sources"))
+            st.markdown("### Guidance")
+            st.markdown(result.get("reply", "No guidance returned."))
+            pending = result.get("pending_confirmation")
+            if pending:
+                st.info("This request requires confirmation before the backend can perform the action.")
+            citations = []
+            for tool_call in result.get("tool_calls", []):
+                tool_result = tool_call.get("result")
+                if isinstance(tool_result, dict):
+                    citations.extend(tool_result.get("citations", []))
+            show_sources(citations)
 
 
 def history_page():
     crumb("History")
-    st.markdown("### Conversation history")
-    st.caption("Everything you have asked, with the sources behind each answer.")
-    st.write("")
-    if not st.session_state.messages:
-        empty("No conversations yet", "Your questions and answers will appear here.")
+    hero("Conversation history", "Everything you have asked, with the sources behind each answer.")
+    conversations = load_history_records()
+    if not conversations:
+        empty("No conversations yet", "Your saved questions and answers will appear here.")
         return
-    for m in reversed(st.session_state.messages):
-        with st.container(border=True):
-            st.markdown(f"**{m['question']}**")
-            st.markdown(m["answer"])
-            show_sources(m.get("sources"))
+    for conversation in conversations:
+        title = conversation.get("title") or "Untitled conversation"
+        updated = display_timestamp(conversation.get("updated_at") or conversation.get("created_at"))
+        with st.expander(f"{title} · {updated}"):
+            for message in conversation.get("messages", []):
+                if message.get("role") == "user":
+                    st.markdown("**Question**")
+                    st.write(message.get("content", ""))
+                elif message.get("role") == "assistant":
+                    st.markdown("**Answer**")
+                    st.markdown(message.get("content", ""))
+                    show_sources(message.get("citations") or [])
 
 
 def admin_page():
@@ -591,18 +850,91 @@ def admin_page():
         st.error("You are not authorized to access the Admin Dashboard.")
         return
     crumb("Admin")
-    hero("Admin dashboard", "Monitor document processing and system health.")
-    docs = load_documents()
-    count = lambda s: sum(status_of(d) == s for d in docs)
-    cols = st.columns(4)
-    data = [("📄", len(docs), "Documents"), ("✅", count("READY"), "Ready"),
-           ("⏳", count("PROCESSING"), "Processing"), ("⚠️", count("FAILED"), "Failed")]
-    for col, (i, v, l) in zip(cols, data):
-        col.markdown(metric(i, v, l), unsafe_allow_html=True)
-    st.write("")
-    online = backend_online()
-    st.markdown(f'<span class="connected"><span class="dot"></span>{"Backend online" if online else "Backend offline"} · {html.escape(API)}</span>',
-               unsafe_allow_html=True)
+    hero("Admin dashboard", "Monitor ingestion, system health, and searchable knowledge-base coverage.")
+    stats_response = call("get", "/api/v1/admin/dashboard")
+    health_response = call("get", "/api/v1/admin/health")
+    if stats_response is None or stats_response.status_code != 200:
+        st.error(err(stats_response, "Admin statistics are unavailable.") if stats_response else "Backend offline. Retry when the service is available.")
+        return
+    stats = stats_response.json()
+    metrics = [
+        ("description", stats.get("total_documents", 0), "Documents"),
+        ("verified", stats.get("ready_documents", 0), "Ready"),
+        ("sync", stats.get("processing_documents", 0), "Processing"),
+        ("warning", stats.get("failed_documents", 0), "Failed"),
+    ]
+    for column, (icon, value, label) in zip(st.columns(4), metrics):
+        column.markdown(metric(icon, value, label), unsafe_allow_html=True)
+
+    st.markdown("##### Knowledge base")
+    knowledge = [
+        ("menu_book", stats.get("total_pages", 0), "Pages"),
+        ("view_agenda", stats.get("total_chunks", 0), "Chunks"),
+        ("database", stats.get("searchable_documents", 0), "Searchable documents"),
+    ]
+    for column, (icon, value, label) in zip(st.columns(3), knowledge):
+        column.markdown(metric(icon, value, label), unsafe_allow_html=True)
+
+    st.markdown("##### System health")
+    if health_response is None or health_response.status_code != 200:
+        st.warning(err(health_response, "System health details are unavailable.") if health_response else "System health details are unavailable.")
+    else:
+        health = health_response.json()
+        health_items = [
+            ("Backend", health.get("status", "unknown")),
+            ("Database", health.get("database", "unknown")),
+            ("Vector store", health.get("vector_store", "unknown")),
+            ("AI model", health.get("llm", "unknown")),
+        ]
+        with st.container(border=True):
+            for column, (label, value) in zip(st.columns(4), health_items):
+                column.caption(label)
+                column.markdown(f"**{str(value).replace('_', ' ').title()}**")
+
+    st.markdown("##### Knowledge documents")
+    documents = []
+    total_documents = 0
+    page = 1
+    inventory_complete = True
+    while True:
+        response = call("get", "/api/v1/admin/documents", params={"page": page, "page_size": 100})
+        if response is None or response.status_code != 200:
+            if page == 1:
+                st.error(err(response, "Document inventory is unavailable.") if response else "Document inventory is unavailable.")
+                return
+            inventory_complete = False
+            break
+        try:
+            data = response.json()
+        except ValueError:
+            inventory_complete = False
+            break
+        page_documents = data.get("documents", [])
+        documents.extend(page_documents)
+        total_documents = int(data.get("total", len(documents)))
+        if len(documents) >= total_documents or not page_documents:
+            break
+        page += 1
+    st.caption(f"Showing {len(documents)} of {total_documents} documents")
+    if not inventory_complete:
+        st.warning("Some pages of the document inventory could not be loaded.")
+    headings = st.columns([3, 2, 0.7, 0.7, 1, 1.3, 0.8])
+    for column, label in zip(headings, ["Document", "Owner", "Pages", "Chunks", "Status", "Uploaded", ""]):
+        column.caption(label)
+    for document in documents:
+        row = st.columns([3, 2, 0.7, 0.7, 1, 1.3, 0.8], vertical_alignment="center")
+        row[0].write(document.get("filename", "Document"))
+        row[1].caption(f"{document.get('owner_name', '')}\n{document.get('owner_email', '')}")
+        row[2].write(document.get("page_count") if document.get("page_count") is not None else "")
+        row[3].write(document.get("chunk_count") if document.get("chunk_count") is not None else "")
+        row[4].markdown(pill(status_of(document)), unsafe_allow_html=True)
+        row[5].caption(display_timestamp(document.get("created_at")))
+        document_id = document.get("document_id")
+        if document_id and row[6].button("Delete", key=f"admin-delete-{document_id}"):
+            delete_response = call("delete", f"/api/v1/documents/{document_id}")
+            if delete_response is not None and delete_response.status_code in (200, 204):
+                st.rerun()
+            st.error(err(delete_response, "Unable to delete document.") if delete_response else "Document service is offline.")
 
 
 # ============================================================ MAIN
