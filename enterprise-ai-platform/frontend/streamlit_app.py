@@ -28,9 +28,9 @@ def go(page):
 
 
 # ============================================================ THEME
-LIGHT = dict(bg="#f7f8fb", surface="#ffffff", surface2="#fafbfd", border="#e8e9f0", ink="#14162b",
-            muted="#6b7280", primary="#6d5bff", primary_ink="#ffffff", chip="#f1f0ff", ok="#e8f8ee", ok_ink="#1a9a52",
-            warn="#fff6e5", warn_ink="#b37700", err="#fdecec", err_ink="#d1373f", hero="linear-gradient(120deg,#f4f3ff,#eafbf5)")
+LIGHT = dict(bg="#faf6f0", surface="#fffdfa", surface2="#f6f1ea", border="#ece4d8", ink="#211c14",
+            muted="#8a7f6e", primary="#6d5bff", primary_ink="#ffffff", chip="#f1ecff", ok="#eaf6ec", ok_ink="#1a9a52",
+            warn="#fdf3e3", warn_ink="#b37700", err="#fbeae8", err_ink="#d1373f", hero="linear-gradient(120deg,#f3efff,#f2f7ef)")
 DARK = dict(bg="#0e0f17", surface="#161826", surface2="#12141f", border="#272a3a", ink="#f2f2f8",
            muted="#9298b0", primary="#8677ff", primary_ink="#ffffff", chip="#232544", ok="#123524", ok_ink="#4ade80",
            warn="#332a12", warn_ink="#ffc966", err="#3a1a1c", err_ink="#ff8a8a", hero="linear-gradient(120deg,#1c1a35,#122a2a)")
@@ -295,7 +295,7 @@ def auth_page():
     left, right = st.columns([1.15, 1], gap="large")
     with left:
         st.markdown(f"""
-        <div style="background:#12131f;border-radius:20px;padding:40px 34px;height:100%;color:#fff">
+        <div style="background:#17141a;border-radius:20px;padding:40px 34px;height:100%;color:#fff">
           <div style="display:flex;align-items:center;gap:8px;font-weight:800;font-size:18px;margin-bottom:26px">
             ✨ Enterprise AI</div>
           <span style="display:inline-block;background:rgba(109,91,255,.25);color:#c7c1ff;font-size:11.5px;font-weight:700;
