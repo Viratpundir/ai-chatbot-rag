@@ -157,6 +157,7 @@ async def request_context_middleware(request: Request, call_next):
     request_id_var.set(rid)
 
     start = time.perf_counter()
+    request.state.request_started_at = start
     logger.debug(
         "Request started",
         extra={

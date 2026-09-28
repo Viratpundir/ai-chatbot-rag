@@ -12,8 +12,11 @@ HuggingFaceEmbeddings) and extended with:
 
 from __future__ import annotations
 
+import hashlib
+import threading
+from collections import OrderedDict
 from functools import lru_cache
-from typing import List
+from typing import List, Tuple
 
 from app.core.config import settings
 from app.core.logging import get_logger
@@ -50,6 +53,16 @@ def get_embeddings():
     return embeddings
 
 
+_QUERY_CACHE_SIZE = 128
+_query_embedding_cache: OrderedDict[Tuple[str, bytes], Tuple[float, ...]] = OrderedDict()
+_query_embedding_cache_lock = threading.Lock()
+
+
+def _clear_query_embedding_cache() -> None:
+    with _query_embedding_cache_lock:
+        _query_embedding_cache.clear()
+
+
 def embed_texts(texts: List[str]) -> List[List[float]]:
     """
     Convenience wrapper – embed a list of strings and return float vectors.
@@ -61,4 +74,17 @@ def embed_texts(texts: List[str]) -> List[List[float]]:
 
 def embed_query(text: str) -> List[float]:
     """Embed a single query string."""
-    return get_embeddings().embed_query(text)
+    key = (settings.EMBEDDING_MODEL, hashlib.sha256(text.encode("utf-8")).digest())
+    with _query_embedding_cache_lock:
+        cached = _query_embedding_cache.get(key)
+        if cached is not None:
+            _query_embedding_cache.move_to_end(key)
+            return list(cached)
+
+    embedding = tuple(get_embeddings().embed_query(text))
+    with _query_embedding_cache_lock:
+        _query_embedding_cache[key] = embedding
+        _query_embedding_cache.move_to_end(key)
+        if len(_query_embedding_cache) > _QUERY_CACHE_SIZE:
+            _query_embedding_cache.popitem(last=False)
+    return list(embedding)

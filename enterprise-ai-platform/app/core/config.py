@@ -12,7 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional
 
-from pydantic import AnyHttpUrl, EmailStr, field_validator
+from pydantic import AnyHttpUrl, EmailStr, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -42,6 +42,13 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     API_V1_PREFIX: str = "/api/v1"
 
+    # Explicit development account seeding. These values are backend-only and
+    # are consumed only by `python -m app.seed_admin`.
+    ADMIN_EMAIL: str = ""
+    ADMIN_PASSWORD: str = ""
+    ADMIN_NAME: str = "Platform Administrator"
+    ADMIN_PROMOTE_EXISTING: bool = False
+
     # ------------------------------------------------------------------
     # Security
     # ------------------------------------------------------------------
@@ -50,6 +57,7 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    DAILY_CHAT_LIMIT: int = Field(default=50, ge=1)
 
     # ------------------------------------------------------------------
     # Database
@@ -141,8 +149,9 @@ class Settings(BaseSettings):
     RERANKER_TOP_N: int = 3
     CHUNK_SIZE: int = 1000
     CHUNK_OVERLAP: int = 200
-    INITIAL_RETRIEVAL_K: int = 20
+    INITIAL_RETRIEVAL_K: int = 15
     FINAL_RETRIEVAL_K: int = 5
+    RETRIEVAL_MIN_HYBRID_SCORE: float = 0.0
     VECTOR_WEIGHT: float = 0.6
     BM25_WEIGHT: float = 0.4
     BM25_K1: float = 1.5
@@ -152,13 +161,18 @@ class Settings(BaseSettings):
     QUERY_EXPANSION_ENABLED: bool = True
     CONTEXT_EXPANSION_ENABLED: bool = True
     CONTEXT_EXPANSION_NEIGHBORS: int = 1
+    CONTEXT_EXPANSION_MAX_CHUNKS: int = 8
     DEBUG_RETRIEVAL: bool = False
 
     # ------------------------------------------------------------------
     # CORS
     # ------------------------------------------------------------------
     # In production, set this to your actual frontend origin(s).
-    CORS_ORIGINS: List[str] = ["http://localhost:8501", "http://localhost:3000"]
+    CORS_ORIGINS: List[str] = [
+        "http://localhost:8501",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
 
     # ------------------------------------------------------------------
     # Validators

@@ -32,24 +32,54 @@ class HybridRetriever:
         self.final_k = top_k or settings.FINAL_RETRIEVAL_K
         self.initial_k = max(initial_k or settings.INITIAL_RETRIEVAL_K, self.final_k)
         self._vs = vector_store or get_vector_store()
+        self._corpus_snapshot: Optional[List[Document]] = None
+        self.last_timings: Dict[str, float] = {}
+
+    def _authorized_corpus(self) -> List[Document]:
+        if self._corpus_snapshot is None:
+            auth_ids = list(self.allowed_document_ids) if self.allowed_document_ids is not None else None
+            started = time.perf_counter()
+            self._corpus_snapshot = self._vs.iter_documents(filter_document_ids=auth_ids)
+            self.last_timings["authorized_corpus_snapshot_ms"] = (
+                time.perf_counter() - started
+            ) * 1000
+        return self._corpus_snapshot
 
     def query_variants(self, query: str) -> List[str]:
-        """Add deterministic aliases only when the query contains known shorthand."""
+        """Add deterministic terminology and named-section aliases for recall."""
         variants = [query.strip()]
         if not settings.QUERY_EXPANSION_ENABLED:
             return variants
+        lowered = query.lower()
+        additions: List[str] = []
         expansions = {
             "wfh": "work from home remote work",
             "remote work": "work from home WFH remote working",
             "exception": "exception exemption special case unless",
             "eligibility": "eligible qualification requirements who can",
             "notice period": "notice period advance notice deadline days",
+            "explainability": "interpretability explainable AI decision rationale",
+            "fairness": "equity bias discrimination algorithmic fairness",
+            "robustness": "reliability resilience stability AI systems",
+            "transparency": "openness disclosure AI system transparency",
+            "privacy": "personal information data protection confidentiality",
         }
-        lowered = query.lower()
-        additions = [value for term, value in expansions.items() if term in lowered]
+        additions.extend(value for term, value in expansions.items() if term in lowered)
+
+        mentions_ai = bool(re.search(r"\b(ai|artificial intelligence)\b", lowered))
+        mentions_ethics = "ethic" in lowered
+        mentions_pillars = any(term in lowered for term in ("pillar", "principle"))
+        if mentions_ai and mentions_ethics:
+            additions.extend((
+                "AI ethics principles ethical AI pillars",
+                "principles for ethical artificial intelligence",
+            ))
+            if mentions_pillars:
+                additions.append("THE FIVE PILLARS OF AI ETHICS")
+
         if additions:
-            variants.append(f"{query} {' '.join(additions)}")
-        return variants
+            variants.extend(additions)
+        return list(dict.fromkeys(variant for variant in variants if variant))
 
     def retrieve_candidates(self, query: str) -> List[Document]:
         """Return up to INITIAL_RETRIEVAL_K fused candidates."""
@@ -68,31 +98,44 @@ class HybridRetriever:
         started = time.perf_counter()
         variants = self.query_variants(query)
         auth_ids = list(self.allowed_document_ids) if self.allowed_document_ids is not None else None
+        self.last_timings = {}
 
         dense: Dict[str, Tuple[Document, float]] = {}
         dense_started = time.perf_counter()
         for variant in variants:
             try:
+                search_timings: Dict[str, float] = {}
                 for doc, distance in self._vs.similarity_search_with_score(
-                    variant, k=self.initial_k, filter_document_ids=auth_ids
+                    variant,
+                    k=self.initial_k,
+                    filter_document_ids=auth_ids,
+                    timings=search_timings,
                 ):
                     key = _doc_key(doc)
                     similarity = 1.0 / (1.0 + max(float(distance), 0.0))
                     if key not in dense or similarity > dense[key][1]:
                         dense[key] = (doc, similarity)
+                for name, value in search_timings.items():
+                    self.last_timings[name] = self.last_timings.get(name, 0.0) + value
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[VECTOR SEARCH] failed", extra={"error": str(exc)})
         dense_ms = (time.perf_counter() - dense_started) * 1000
 
-        corpus = self._vs.iter_documents(filter_document_ids=auth_ids)
+        corpus = self._authorized_corpus()
         lexical_started = time.perf_counter()
         lexical = self._bm25_search(variants, corpus, self.initial_k)
         lexical_ms = (time.perf_counter() - lexical_started) * 1000
+        self.last_timings["dense_search_ms"] = dense_ms
+        self.last_timings["lexical_search_ms"] = lexical_ms
+        self.last_timings["authorized_corpus_chunks"] = float(len(corpus))
+        exact_sections = [doc for doc in corpus if _exact_section_match(variants, doc)]
 
         candidates: Dict[str, Document] = {}
         for doc, _ in dense.values():
             candidates[_doc_key(doc)] = doc
         for doc, _ in lexical:
+            candidates[_doc_key(doc)] = doc
+        for doc in exact_sections:
             candidates[_doc_key(doc)] = doc
 
         dense_scores = _normalize({key: score for key, (_, score) in dense.items()})
@@ -101,7 +144,7 @@ class HybridRetriever:
         for key, doc in candidates.items():
             vector_score = dense_scores.get(key, 0.0)
             bm25_score = lexical_scores.get(key, 0.0)
-            section_boost = _section_match_boost(query, doc)
+            section_boost = _section_match_boost(variants, doc)
             hybrid_score = (
                 settings.VECTOR_WEIGHT * vector_score
                 + settings.BM25_WEIGHT * bm25_score
@@ -110,10 +153,12 @@ class HybridRetriever:
             doc.metadata["vector_score"] = round(vector_score, 6)
             doc.metadata["bm25_score"] = round(bm25_score, 6)
             doc.metadata["hybrid_score"] = round(hybrid_score, 6)
-            scored.append((doc, hybrid_score))
+            if hybrid_score >= settings.RETRIEVAL_MIN_HYBRID_SCORE:
+                scored.append((doc, hybrid_score))
 
         scored.sort(key=lambda item: item[1], reverse=True)
         result = scored[: limit or self.initial_k]
+        self.last_timings["candidate_count"] = float(len(result))
         logger.info(
             "[HYBRID FUSION] complete",
             extra={
@@ -127,28 +172,82 @@ class HybridRetriever:
         )
         return result
 
-    def expand_context(self, documents: List[Document]) -> List[Document]:
+    def expand_context(
+        self,
+        documents: List[Document],
+        query: Optional[str] = None,
+    ) -> List[Document]:
         """Add bounded same-document neighbors for answers spanning chunks."""
         if not settings.CONTEXT_EXPANSION_ENABLED or not documents:
             return documents
         auth_ids = list(self.allowed_document_ids) if self.allowed_document_ids is not None else None
-        corpus = self._vs.iter_documents(filter_document_ids=auth_ids)
+        corpus = self._authorized_corpus()
+        max_context_chunks = max(settings.CONTEXT_EXPANSION_MAX_CHUNKS, self.final_k)
+        if query:
+            variants = self.query_variants(query)
+            exact_match = next(
+                (doc for doc in documents if _exact_section_match(variants, doc)),
+                None,
+            )
+            if exact_match:
+                section = str(exact_match.metadata.get("section", "")).strip()
+                document_id = str(exact_match.metadata.get("document_id", ""))
+                section_chunks = [
+                    doc for doc in corpus
+                    if str(doc.metadata.get("document_id", "")) == document_id
+                    and str(doc.metadata.get("section", "")).strip() == section
+                ]
+                section_chunks.sort(key=lambda doc: int(doc.metadata.get("chunk_index", 0)))
+                return section_chunks[:max_context_chunks]
+
         by_doc: Dict[str, List[Document]] = defaultdict(list)
         for doc in corpus:
             by_doc[str(doc.metadata.get("document_id", ""))].append(doc)
         for chunks in by_doc.values():
             chunks.sort(key=lambda doc: int(doc.metadata.get("chunk_index", 0)))
 
-        selected = {_doc_key(doc) for doc in documents}
-        expanded = list(documents)
-        neighbor_count = max(settings.CONTEXT_EXPANSION_NEIGHBORS, 0)
+        selected: Set[str] = set()
+        expanded: List[Document] = []
         for doc in documents:
+            key = _doc_key(doc)
+            if key not in selected and len(expanded) < max_context_chunks:
+                selected.add(key)
+                expanded.append(doc)
+        neighbor_count = max(settings.CONTEXT_EXPANSION_NEIGHBORS, 0)
+        max_section_chunks = max(settings.CONTEXT_EXPANSION_MAX_CHUNKS, 1)
+        for doc in expanded.copy():
+            if len(expanded) >= max_context_chunks:
+                break
             chunks = by_doc.get(str(doc.metadata.get("document_id", "")), [])
+            section = str(doc.metadata.get("section", "")).strip()
+            if section:
+                section_chunks = [
+                    item for item in chunks
+                    if str(item.metadata.get("section", "")).strip() == section
+                ]
+                selected_in_section = sum(
+                    _doc_key(item) in selected for item in section_chunks
+                )
+                remaining = min(max_section_chunks - selected_in_section, max_context_chunks - len(expanded))
+                for chunk in section_chunks:
+                    key = _doc_key(chunk)
+                    if remaining <= 0:
+                        break
+                    if key not in selected:
+                        selected.add(key)
+                        chunk.metadata.setdefault("context_neighbor", True)
+                        expanded.append(chunk)
+                        remaining -= 1
+                        if len(expanded) >= max_context_chunks:
+                            break
+                continue
             try:
                 index = next(i for i, item in enumerate(chunks) if _doc_key(item) == _doc_key(doc))
             except StopIteration:
                 continue
             for neighbor in chunks[max(0, index - neighbor_count): index + neighbor_count + 1]:
+                if len(expanded) >= max_context_chunks:
+                    break
                 key = _doc_key(neighbor)
                 if key not in selected and _same_context(doc, neighbor):
                     selected.add(key)
@@ -205,15 +304,32 @@ def _normalize(scores: Dict[str, float]) -> Dict[str, float]:
     return {key: (value - minimum) / (maximum - minimum) for key, value in scores.items()}
 
 
-def _section_match_boost(query: str, doc: Document) -> float:
-    query_terms = set(_tokenize(query))
-    section_terms = set(_tokenize(" ".join(
+def _section_match_boost(queries: Iterable[str], doc: Document) -> float:
+    section_terms = _section_terms(doc)
+    if not section_terms:
+        return 0.0
+    best_overlap = 0.0
+    for query in queries:
+        query_terms = set(_tokenize(query))
+        if not query_terms:
+            continue
+        if section_terms.issubset(query_terms):
+            return 0.35
+        best_overlap = max(best_overlap, len(query_terms & section_terms) / len(query_terms))
+    return min(best_overlap * 0.2, 0.2)
+
+
+def _exact_section_match(queries: Iterable[str], doc: Document) -> bool:
+    section_terms = _section_terms(doc)
+    return bool(section_terms) and any(
+        section_terms.issubset(set(_tokenize(query))) for query in queries
+    )
+
+
+def _section_terms(doc: Document) -> Set[str]:
+    return set(_tokenize(" ".join(
         [str(doc.metadata.get("section", "")), str(doc.metadata.get("subsection", ""))]
     )))
-    if not query_terms or not section_terms:
-        return 0.0
-    overlap = len(query_terms & section_terms) / len(query_terms)
-    return min(overlap * 0.2, 0.2)
 
 
 def _same_context(first: Document, second: Document) -> bool:

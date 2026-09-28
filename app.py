@@ -65,24 +65,24 @@ st.markdown(
         background:
             radial-gradient(
                 circle at 10% 10%,
-                rgba(99, 102, 241, 0.16),
-                transparent 32%
+                rgba(109, 91, 255, 0.18),
+                transparent 35%
             ),
 
             radial-gradient(
                 circle at 90% 85%,
-                rgba(20, 184, 166, 0.10),
-                transparent 30%
+                rgba(0, 194, 168, 0.15),
+                transparent 32%
             ),
 
             linear-gradient(
                 135deg,
-                #060810 0%,
-                #090d18 50%,
-                #05070d 100%
+                #12101e 0%,
+                #1b172e 50%,
+                #100d1c 100%
             );
 
-        color: #f8fafc;
+        color: #f4eeff;
 
     }
 
@@ -93,9 +93,9 @@ st.markdown(
 
     .block-container {
 
-        max-width: 1100px;
+        max-width: 1400px;
 
-        padding-top: 35px;
+        padding-top: 25px;
         padding-bottom: 100px;
 
     }
@@ -123,19 +123,19 @@ st.markdown(
 
         padding:
             8px
-            16px;
+            18px;
 
         border-radius: 30px;
 
         background:
-            rgba(99, 102, 241, 0.10);
+            rgba(109, 91, 255, 0.18);
 
         border:
             1px solid
-            rgba(129, 140, 248, 0.25);
+            rgba(139, 124, 255, 0.35);
 
         color:
-            #a5b4fc;
+            #c6c0ff;
 
         font-size:
             13px;
@@ -151,7 +151,7 @@ st.markdown(
 
         box-shadow:
             0 0 25px
-            rgba(99,102,241,0.08);
+            rgba(109,91,255,0.15);
 
     }
 
@@ -177,8 +177,8 @@ st.markdown(
             linear-gradient(
                 90deg,
                 #ffffff 0%,
-                #c7d2fe 45%,
-                #5eead4 100%
+                #c6c0ff 45%,
+                #00c2a8 100%
             );
 
         -webkit-background-clip:

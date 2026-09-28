@@ -48,6 +48,32 @@ in the output instructions.
 5. Be concise and professional.  Avoid unnecessary preamble.
 6. If the question is ambiguous, answer the most reasonable \
 interpretation and note the assumption.
+7. When the question names a heading, topic, or principle, prioritize \
+    context from the matching section. Do not discard an exact section \
+    match in favor of a less specific passage.
+8. Combine all relevant retrieved chunks when they describe different \
+    parts of the answer. Do not ignore relevant context that was provided.
+9. For every factual claim, identify the source filename and page number \
+    from the context. Never invent a page reference.
+10. Do not use facts from your training data to fill gaps in the retrieved context.
+11. For list or count questions, include only items explicitly present in \
+    the context. Do not add related concepts as extra items.
+"""
+
+GUIDE_RESPONSE_INSTRUCTIONS = """\
+- Answer as a helpful, document-grounded guide. Do not ask for clarification \
+unless the request is empty or genuinely unintelligible.
+- For learning or process requests, start with a short title and organize \
+the supported material into numbered steps. Use only steps justified by context.
+- For a direct factual question, answer directly; do not force irrelevant steps.
+- Add concise key takeaways only when supported by retrieved context.
+- If the documents do not provide enough information for a complete guide, \
+say so plainly and explain what is missing without filling gaps from memory.
+- Do not invent steps, definitions, examples, facts, or source references.
+- Do not put page numbers, source names, bracketed citations, or a Sources section \
+in the answer. The application appends verified source metadata and excerpts.
+- If the question asks which page contains information, answer using only the \
+page numbers shown in the retrieved context headers.
 """
 
 # ---------------------------------------------------------------------------
@@ -68,12 +94,7 @@ USER QUESTION
 $question
 
 ANSWER INSTRUCTIONS
-- Write your answer first.
-- Then list the sources you used under a "Sources:" heading.
-- For each source include: filename, page number (if available), and a \
-one-sentence description of what the source says.
-- If you used no context (e.g., the question is a greeting), skip the \
-Sources section.
+$answer_instructions
 
 Answer:""")
 
@@ -83,6 +104,7 @@ def build_rag_prompt(
     context_docs: List[Document],
     history: Optional[str] = None,
     system_prompt: Optional[str] = None,
+    response_style: str = "answer",
 ) -> str:
     """
     Build the full RAG prompt string.
@@ -104,6 +126,12 @@ def build_rag_prompt(
         context=context_str,
         history=history_str,
         question=question,
+        answer_instructions=(
+            GUIDE_RESPONSE_INSTRUCTIONS
+            if response_style == "guide"
+            else "- Answer directly and concisely from context.\n"
+            "- Cite sources only from the provided context; never invent a page."
+        ),
     )
 
 

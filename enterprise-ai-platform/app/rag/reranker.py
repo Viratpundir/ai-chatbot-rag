@@ -17,6 +17,9 @@ Default model: cross-encoder/ms-marco-MiniLM-L-6-v2
 
 from __future__ import annotations
 
+import hashlib
+import threading
+from collections import OrderedDict
 from functools import lru_cache
 from typing import List, Tuple
 
@@ -43,6 +46,43 @@ def _get_cross_encoder():
             extra={"error": str(exc)},
         )
         return None
+
+
+_RERANK_CACHE_SIZE = 32
+_rerank_score_cache: OrderedDict[Tuple[str, Tuple[bytes, ...]], Tuple[float, ...]] = OrderedDict()
+_rerank_score_cache_lock = threading.Lock()
+
+
+def _clear_rerank_score_cache() -> None:
+    with _rerank_score_cache_lock:
+        _rerank_score_cache.clear()
+
+
+def _cached_cross_encoder_scores(
+    model_name: str,
+    pairs: Tuple[Tuple[str, str], ...],
+) -> Tuple[float, ...]:
+    pair_digests = tuple(
+        hashlib.sha256(query.encode("utf-8") + b"\0" + text.encode("utf-8")).digest()
+        for query, text in pairs
+    )
+    key = (model_name, pair_digests)
+    with _rerank_score_cache_lock:
+        cached = _rerank_score_cache.get(key)
+        if cached is not None:
+            _rerank_score_cache.move_to_end(key)
+            return cached
+
+    model = _get_cross_encoder()
+    if model is None:
+        return ()
+    scores = tuple(float(score) for score in model.predict(list(pairs)).tolist())
+    with _rerank_score_cache_lock:
+        _rerank_score_cache[key] = scores
+        _rerank_score_cache.move_to_end(key)
+        if len(_rerank_score_cache) > _RERANK_CACHE_SIZE:
+            _rerank_score_cache.popitem(last=False)
+    return scores
 
 
 class Reranker:
@@ -74,14 +114,15 @@ class Reranker:
         if not settings.RERANKER_ENABLED:
             return candidates[: self.top_n]
 
-        model = _get_cross_encoder()
-        if model is None:
+        if _get_cross_encoder() is None:
             logger.debug("Reranker unavailable — returning top-k from retriever order")
             return candidates[: self.top_n]
 
-        pairs = [(query, doc.page_content) for doc in candidates]
+        pairs = tuple((query, doc.page_content) for doc in candidates)
         try:
-            scores: List[float] = model.predict(pairs).tolist()
+            scores: List[float] = list(
+                _cached_cross_encoder_scores(settings.RERANKER_MODEL, pairs)
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "Reranker prediction failed — falling back",

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -43,7 +43,18 @@ class ChatResponse(BaseModel):
     conversation_id: str
     message_id: str
     retrieval_time_ms: float
+    reranking_time_ms: float = 0.0
+    embedding_time_ms: float = 0.0
+    vector_search_time_ms: float = 0.0
+    permission_filter_time_ms: float = 0.0
+    lexical_search_time_ms: float = 0.0
+    context_time_ms: float = 0.0
+    prompt_time_ms: float = 0.0
     llm_time_ms: float
+    llm_first_token_ms: Optional[float] = None
+    time_to_first_token_ms: Optional[float] = None
+    prompt_chars: int = 0
+    approximate_prompt_tokens: int = 0
     total_time_ms: float
     model: str
     retrieval_debug: List[Dict[str, Any]] = []
@@ -101,6 +112,14 @@ class AgentRequest(BaseModel):
     all_authorized: bool = False
     confirm_action: Optional[bool] = None   # user confirming a pending action
     pending_action: Optional[Dict[str, Any]] = None
+
+    @field_validator("message")
+    @classmethod
+    def strip_message(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Enter a question or task for the AI Guide.")
+        return value
 
 
 class AgentToolCall(BaseModel):

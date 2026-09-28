@@ -767,6 +767,18 @@ class ConversationRepository:
         )
         return result.scalar_one()
 
+    async def count_user_messages_since(self, user_id: str, since: datetime) -> int:
+        result = await self.db.execute(
+            select(func.count(Message.id))
+            .join(Conversation, Conversation.id == Message.conversation_id)
+            .where(
+                Conversation.user_id == user_id,
+                Message.role == "user",
+                Message.created_at >= since,
+            )
+        )
+        return result.scalar_one()
+
 
 # ===========================================================================
 # AUDIT LOG REPOSITORY

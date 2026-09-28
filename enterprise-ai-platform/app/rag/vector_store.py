@@ -16,6 +16,7 @@ can run multiple named indexes (e.g., per-department).
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 from typing import List, Optional
 
@@ -148,8 +149,10 @@ class VectorStoreManager:
         query: str,
         k: int = 5,
         filter_document_ids: Optional[List[str]] = None,
+        timings: Optional[dict[str, float]] = None,
     ) -> List[tuple[Document, float]]:
         """Like similarity_search but returns (Document, score) tuples."""
+        index_load_started = time.perf_counter()
         with self._lock:
             if self._index is None:
                 self._index = self._load_or_create()
@@ -157,16 +160,39 @@ class VectorStoreManager:
                 return []
             if filter_document_ids is not None and not filter_document_ids:
                 return []
+            index_size = len(self._index.index_to_docstore_id)
+        index_load_ms = (time.perf_counter() - index_load_started) * 1000
 
-        fetch_k = len(self._index.index_to_docstore_id) if filter_document_ids else k
-        results = self._index.similarity_search_with_score(query, k=fetch_k)
+        embedding_started = time.perf_counter()
+        from app.rag.embeddings import embed_query
 
+        query_embedding = embed_query(query)
+        embedding_ms = (time.perf_counter() - embedding_started) * 1000
+
+        vector_search_started = time.perf_counter()
+        fetch_k = index_size if filter_document_ids else k
+        results = self._index.similarity_search_with_score_by_vector(
+            query_embedding,
+            k=fetch_k,
+        )
+        vector_search_ms = (time.perf_counter() - vector_search_started) * 1000
+
+        permission_filter_started = time.perf_counter()
         if filter_document_ids:
             allowed = set(filter_document_ids)
             results = [
                 (doc, score) for doc, score in results
                 if doc.metadata.get("document_id") in allowed
             ]
+
+        if timings is not None:
+            timings.update({
+                "index_load_ms": index_load_ms,
+                "embedding_ms": embedding_ms,
+                "vector_search_ms": vector_search_ms,
+                "permission_filter_ms": (time.perf_counter() - permission_filter_started) * 1000,
+                "index_size": float(index_size),
+            })
 
         return results[:k]
 

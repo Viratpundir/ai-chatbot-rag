@@ -79,7 +79,11 @@ enterprise-ai-platform/
 │       └── chat.py
 │
 ├── frontend/
-│   └── streamlit_app.py          ← Streamlit UI (talks to FastAPI backend)
+│   ├── streamlit_app.py          ← Streamlit setup, theme, and app entry point
+│   ├── api.py                    ← Centralized FastAPI client and response helpers
+│   ├── components.py             ← Shared AppShell, sidebar, topbar, and UI helpers
+│   ├── constants.py              ← Navigation and session defaults
+│   └── pages.py                  ← Login, dashboard, documents, chat, guide, history, and admin
 │
 ├── tests/                        ← pytest suite
 ├── evaluation/                   ← RAG evaluation scripts (Stage 14)

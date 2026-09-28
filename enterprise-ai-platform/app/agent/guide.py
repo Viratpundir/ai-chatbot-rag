@@ -8,6 +8,7 @@ functions are callable or bypass the registry's authorization checks.
 from __future__ import annotations
 
 import time
+import re
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
@@ -29,6 +30,8 @@ class AgentResult:
 
 def classify_intent(message: str) -> str:
     text = message.casefold()
+    if not text.strip():
+        return "clarification"
     if any(word in text for word in ("leave", "vacation", "holiday")):
         return "leave_guidance"
     if any(word in text for word in ("onboarding", "on-boarding")):
@@ -37,9 +40,7 @@ def classify_intent(message: str) -> str:
         return "create_ticket"
     if any(word in text for word in ("summarize", "summary", "summarise")):
         return "summarize_documents"
-    if any(word in text for word in ("policy", "document", "handbook", "procedure")):
-        return "search_documents"
-    return "clarification"
+    return "search_documents"
 
 
 class AIGuideAgent:
@@ -98,13 +99,51 @@ class AIGuideAgent:
                 return self._result(reply, intent, [], pending, started)
 
             call = {"tool_name": tool.name, "arguments": arguments, "result": result}
-            reply = self._format_result(intent, result)
+            reply = self._format_result(intent, result, query=arguments.get("query", ""))
             return self._result(reply, intent, [call], None, started)
 
     @staticmethod
-    def _format_result(intent: str, result: Any) -> str:
+    def _format_result(intent: str, result: Any, query: str = "") -> str:
         if isinstance(result, dict) and result.get("answer"):
-            return result["answer"]
+            answer = str(result["answer"]).strip()
+            citations = result.get("citations") or []
+            answer = re.split(r"\n\s*Sources\b.*", answer, maxsplit=1, flags=re.IGNORECASE | re.DOTALL)[0]
+            answer = re.sub(
+                r"\([^)]*(?:\bsection\s*:|\bpages?\s*\d+)[^)]*\)",
+                "",
+                answer,
+                flags=re.IGNORECASE,
+            )
+            answer = re.sub(r"\[\d+\]", "", answer)
+            answer = re.sub(
+                r"\b(?:pages?)\s+\d+(?:\s*[-–]\s*\d+)?\b",
+                "",
+                answer,
+                flags=re.IGNORECASE,
+            )
+            answer = re.sub(
+                r"\(?\s*Section:\s*[^()\n]*?\)?",
+                "",
+                answer,
+                flags=re.IGNORECASE,
+            ).strip()
+            if re.search(r"\b(?:what|which)\s+pages?\b", query, re.IGNORECASE) and citations:
+                page_citation = next((citation for citation in citations if citation.get("page") is not None), None)
+                if page_citation:
+                    filename = page_citation.get("filename") or "the document"
+                    answer = f"The most relevant passage is on page {page_citation['page']} of {filename}."
+            if citations:
+                source_lines = ["Sources"]
+                for citation in citations:
+                    filename = citation.get("filename") or "Unknown document"
+                    page = citation.get("page")
+                    page_label = f" · Page {page}" if page is not None else ""
+                    excerpt = str(citation.get("excerpt") or "").strip()
+                    source_lines.append(f"{filename}{page_label}")
+                    if excerpt:
+                        source_lines.append(f'"{excerpt}"')
+                answer = f"{answer}\n\n" + "\n".join(source_lines)
+            return answer
         if result:
             return str(result)
         return "I could not find enough authorized information to answer that."
@@ -135,6 +174,7 @@ def build_agent(rag_query: Any) -> AIGuideAgent:
             user,
             document_ids=arguments.get("document_ids"),
             all_authorized=arguments.get("all_authorized", True),
+            response_style="guide",
         )
         return {"answer": response.answer, "citations": response.citations}
 

@@ -18,6 +18,7 @@ stored in the sessions table so it can be individually revoked.
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -85,6 +86,7 @@ def extract_jti(refresh_token: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 async def get_current_user(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
     db: AsyncSession = Depends(get_db),
 ) -> User:
@@ -97,6 +99,7 @@ async def get_current_user(
       - User not found
       - Account deactivated
     """
+    auth_started = time.perf_counter()
     if credentials is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -149,6 +152,7 @@ async def get_current_user(
 
     # Inject into logging context for this request
     user_id_var.set(user.id)
+    request.state.auth_elapsed_ms = (time.perf_counter() - auth_started) * 1000
 
     return user
 
@@ -158,6 +162,7 @@ async def get_current_user(
 # ---------------------------------------------------------------------------
 
 async def get_current_user_optional(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
     db: AsyncSession = Depends(get_db),
 ) -> Optional[User]:
@@ -165,7 +170,7 @@ async def get_current_user_optional(
     if credentials is None:
         return None
     try:
-        return await get_current_user(credentials=credentials, db=db)
+        return await get_current_user(request=request, credentials=credentials, db=db)
     except HTTPException:
         return None
 
@@ -216,7 +221,10 @@ async def refresh_access_token(
             detail="Session has been revoked. Please log in again.",
         )
 
-    if session.expires_at < datetime.now(timezone.utc):
+    expires_at = session.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at.astimezone(timezone.utc) < datetime.now(timezone.utc):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token has expired. Please log in again.",
