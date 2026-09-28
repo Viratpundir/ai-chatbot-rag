@@ -11,8 +11,14 @@ from app.database.repositories import DocumentRepository
 from app.rag.loader import DocumentLoadError, load_documents
 from app.rag.splitter import split_docs
 from app.rag.vector_store import get_vector_store
+from app.storage import materialize_document
 
 logger = get_logger(__name__)
+
+
+def _load_document_pages(document_path: str, document_id: str):
+    with materialize_document(document_path) as local_path:
+        return load_documents(local_path, document_id)
 
 
 async def ingest_document(document_id: str) -> None:
@@ -34,7 +40,7 @@ async def ingest_document(document_id: str) -> None:
     logger.info("[PROCESSING] %s", document_id)
     try:
         logger.info("[PDF EXTRACTION] %s", document_id)
-        loaded = await asyncio.to_thread(load_documents, document_path, document_id)
+        loaded = await asyncio.to_thread(_load_document_pages, document_path, document_id)
         for page in loaded:
             page.metadata.update(document_metadata)
         logger.info("[PDF EXTRACTION] %s pages=%d", document_id, len(loaded))

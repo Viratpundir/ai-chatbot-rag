@@ -15,10 +15,13 @@ can run multiple named indexes (e.g., per-department).
 
 from __future__ import annotations
 
+import os
 import threading
 import time
+import uuid
+from contextlib import contextmanager
 from pathlib import Path
-from typing import List, Optional
+from typing import Iterator, List, Optional
 
 from langchain_core.documents import Document
 
@@ -45,6 +48,62 @@ class VectorStoreManager:
         self._store_path = Path(settings.VECTOR_STORE_PATH) / index_name
         self._lock = threading.Lock()
         self._index = None  # lazy-loaded
+        self._loaded_generation: Optional[str] = None
+
+    @property
+    def _generation_path(self) -> Path:
+        return self._store_path / ".generation"
+
+    def _read_generation(self) -> Optional[str]:
+        try:
+            return self._generation_path.read_text(encoding="ascii").strip()
+        except FileNotFoundError:
+            index_path = self._store_path / "index.faiss"
+            if not index_path.exists():
+                return None
+            stat = index_path.stat()
+            return f"legacy:{stat.st_mtime_ns}:{stat.st_size}"
+
+    @contextmanager
+    def _distributed_index_lock(self) -> Iterator[None]:
+        if not settings.is_production:
+            yield
+            return
+
+        from redis import Redis
+
+        client = Redis.from_url(settings.REDIS_URL, socket_connect_timeout=3)
+        lock = client.lock(
+            f"nexaiq:faiss:{self._store_path.resolve()}",
+            timeout=1800,
+            blocking_timeout=60,
+        )
+        acquired = False
+        try:
+            acquired = lock.acquire(blocking=True)
+            if not acquired:
+                raise RuntimeError("Could not acquire the shared FAISS index lock.")
+            yield
+        finally:
+            if acquired:
+                lock.release()
+            client.close()
+
+    def _load_current_generation(self) -> None:
+        self._index = self._load_or_create()
+        self._loaded_generation = self._read_generation()
+
+    def _refresh_if_changed(self, *, distributed_lock_held: bool = False) -> None:
+        current_generation = self._read_generation()
+        if self._index is not None and current_generation == self._loaded_generation:
+            return
+        if distributed_lock_held or not settings.is_production:
+            self._load_current_generation()
+            return
+        with self._distributed_index_lock():
+            current_generation = self._read_generation()
+            if self._index is None or current_generation != self._loaded_generation:
+                self._load_current_generation()
 
     # ------------------------------------------------------------------
     # Index lifecycle
@@ -68,11 +127,18 @@ class VectorStoreManager:
         return None
 
     def _save(self) -> None:
-        """Persist the current index to disk."""
+        """Persist index files and publish a generation marker for shared readers."""
+        self._store_path.mkdir(parents=True, exist_ok=True)
         if self._index is not None:
-            self._store_path.mkdir(parents=True, exist_ok=True)
             self._index.save_local(str(self._store_path))
             logger.debug("FAISS index saved", extra={"path": str(self._store_path)})
+        else:
+            for filename in ("index.faiss", "index.pkl"):
+                (self._store_path / filename).unlink(missing_ok=True)
+        temporary_marker = self._generation_path.with_name(f".generation.{uuid.uuid4().hex}.tmp")
+        temporary_marker.write_text(uuid.uuid4().hex, encoding="ascii")
+        os.replace(temporary_marker, self._generation_path)
+        self._loaded_generation = self._read_generation()
 
     # ------------------------------------------------------------------
     # Public API
@@ -90,16 +156,16 @@ class VectorStoreManager:
             return
 
         with self._lock:
-            if self._index is None:
-                self._index = self._load_or_create()
+            with self._distributed_index_lock():
+                self._refresh_if_changed(distributed_lock_held=True)
 
-            if self._index is None:
-                logger.info("Creating new FAISS index")
-                self._index = FAISS.from_documents(documents, self._get_embeddings())
-            else:
-                self._index.add_documents(documents)
+                if self._index is None:
+                    logger.info("Creating new FAISS index")
+                    self._index = FAISS.from_documents(documents, self._get_embeddings())
+                else:
+                    self._index.add_documents(documents)
 
-            self._save()
+                self._save()
             logger.info(
                 "Documents added to vector store",
                 extra={"count": len(documents), "index": self.index_name},
@@ -123,17 +189,15 @@ class VectorStoreManager:
                                  only authorised document IDs are passed in.
         """
         with self._lock:
-            if self._index is None:
-                self._index = self._load_or_create()
+            self._refresh_if_changed()
             if self._index is None:
                 logger.warning("Vector store is empty — no documents indexed yet")
                 return []
             if filter_document_ids is not None and not filter_document_ids:
                 return []
-
-        # Fetch extra candidates so filtering doesn't leave us with too few
-        fetch_k = len(self._index.index_to_docstore_id) if filter_document_ids else k
-        results = self._index.similarity_search(query, k=fetch_k)
+            # Fetch extra candidates so filtering doesn't leave us with too few.
+            fetch_k = len(self._index.index_to_docstore_id) if filter_document_ids else k
+            results = self._index.similarity_search(query, k=fetch_k)
 
         if filter_document_ids:
             allowed = set(filter_document_ids)
@@ -154,13 +218,11 @@ class VectorStoreManager:
         """Like similarity_search but returns (Document, score) tuples."""
         index_load_started = time.perf_counter()
         with self._lock:
-            if self._index is None:
-                self._index = self._load_or_create()
+            self._refresh_if_changed()
             if self._index is None:
                 return []
             if filter_document_ids is not None and not filter_document_ids:
                 return []
-            index_size = len(self._index.index_to_docstore_id)
         index_load_ms = (time.perf_counter() - index_load_started) * 1000
 
         embedding_started = time.perf_counter()
@@ -171,10 +233,16 @@ class VectorStoreManager:
 
         vector_search_started = time.perf_counter()
         fetch_k = index_size if filter_document_ids else k
-        results = self._index.similarity_search_with_score_by_vector(
-            query_embedding,
-            k=fetch_k,
-        )
+        with self._lock:
+            self._refresh_if_changed()
+            index = self._index
+            if index is None:
+                return []
+            fetch_k = len(index.index_to_docstore_id) if filter_document_ids else k
+            results = index.similarity_search_with_score_by_vector(
+                query_embedding,
+                k=fetch_k,
+            )
         vector_search_ms = (time.perf_counter() - vector_search_started) * 1000
 
         permission_filter_started = time.perf_counter()
@@ -191,7 +259,7 @@ class VectorStoreManager:
                 "embedding_ms": embedding_ms,
                 "vector_search_ms": vector_search_ms,
                 "permission_filter_ms": (time.perf_counter() - permission_filter_started) * 1000,
-                "index_size": float(index_size),
+                "index_size": float(fetch_k if filter_document_ids else len(index.index_to_docstore_id)),
             })
 
         return results[:k]
@@ -202,8 +270,7 @@ class VectorStoreManager:
     ) -> List[Document]:
         """Return indexed chunks, restricted before lexical retrieval."""
         with self._lock:
-            if self._index is None:
-                self._index = self._load_or_create()
+            self._refresh_if_changed()
             if self._index is None:
                 return []
             documents = list(self._index.docstore._dict.values())
@@ -227,44 +294,38 @@ class VectorStoreManager:
         from langchain_community.vectorstores import FAISS  # lazy
 
         with self._lock:
-            if self._index is None:
-                self._index = self._load_or_create()
-            if self._index is None:
-                return 0
+            with self._distributed_index_lock():
+                self._refresh_if_changed(distributed_lock_held=True)
+                if self._index is None:
+                    return 0
 
-            # Extract all documents currently in the index
-            docstore = self._index.docstore
-            all_docs = list(docstore._dict.values())
+                all_docs = list(self._index.docstore._dict.values())
+                kept = [doc for doc in all_docs if doc.metadata.get("document_id") != document_id]
+                removed = len(all_docs) - len(kept)
 
-            # Separate kept vs removed
-            kept = [d for d in all_docs if d.metadata.get("document_id") != document_id]
-            removed = len(all_docs) - len(kept)
+                if removed == 0:
+                    logger.info(
+                        "No chunks found for document_id",
+                        extra={"document_id": document_id},
+                    )
+                    return 0
 
-            if removed == 0:
+                if kept:
+                    self._index = FAISS.from_documents(kept, self._get_embeddings())
+                else:
+                    self._index = None
+
+                self._save()
                 logger.info(
-                    "No chunks found for document_id",
-                    extra={"document_id": document_id},
+                    "Chunks removed from vector store",
+                    extra={"document_id": document_id, "removed": removed},
                 )
-                return 0
-
-            # Rebuild
-            if kept:
-                self._index = FAISS.from_documents(kept, self._get_embeddings())
-            else:
-                self._index = None
-
-            self._save()
-            logger.info(
-                "Chunks removed from vector store",
-                extra={"document_id": document_id, "removed": removed},
-            )
-            return removed
+                return removed
 
     def is_ready(self) -> bool:
         """Return True if the index exists and has at least one document."""
         with self._lock:
-            if self._index is None:
-                self._index = self._load_or_create()
+            self._refresh_if_changed()
             return self._index is not None
 
 

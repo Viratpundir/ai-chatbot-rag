@@ -136,6 +136,12 @@ class Settings(BaseSettings):
     # Document storage
     # ------------------------------------------------------------------
     UPLOAD_DIR: str = str(BASE_DIR / "data" / "uploads")
+    S3_BUCKET: str = ""
+    S3_REGION: str = ""
+    S3_ENDPOINT_URL: str = ""
+    S3_ACCESS_KEY_ID: str = ""
+    S3_SECRET_ACCESS_KEY: str = ""
+    S3_DOCUMENT_PREFIX: str = "documents"
     MAX_UPLOAD_SIZE_MB: int = 50
     ALLOWED_EXTENSIONS: List[str] = ["pdf", "docx", "txt", "md", "html"]
     ALLOW_STUDENT_UPLOAD: bool = True

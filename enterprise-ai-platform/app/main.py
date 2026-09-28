@@ -19,8 +19,12 @@ from __future__ import annotations
 
 import time
 import uuid
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any, Dict
+from pathlib import PurePosixPath
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -43,6 +47,33 @@ setup_logging(
 logger = get_logger(__name__)
 
 
+def validate_production_storage_settings() -> None:
+    """Fail early when a production deployment would silently use ephemeral storage."""
+    if not settings.is_production:
+        return
+
+    problems = []
+    if settings.DATABASE_URL.startswith("sqlite"):
+        problems.append("DATABASE_URL must point to a persistent PostgreSQL database")
+    if not os.getenv("JWT_SECRET_KEY"):
+        problems.append("JWT_SECRET_KEY must be a stable environment secret")
+    if not settings.S3_BUCKET:
+        problems.append("S3_BUCKET must be configured for persistent uploaded PDFs")
+    if not settings.CELERY_ENABLED:
+        problems.append("CELERY_ENABLED must be true so ingestion runs in the worker")
+    if urlsplit(settings.REDIS_URL).hostname in {"localhost", "127.0.0.1", "0.0.0.0"}:
+        problems.append("REDIS_URL must point to the shared production Redis service")
+    if not Path(settings.VECTOR_STORE_PATH).is_absolute() and not PurePosixPath(settings.VECTOR_STORE_PATH).is_absolute():
+        problems.append("VECTOR_STORE_PATH must be an absolute shared persistent mount")
+    if not settings.OPENAI_API_KEY and urlsplit(settings.OLLAMA_HOST).hostname in {
+        None, "localhost", "127.0.0.1", "0.0.0.0"
+    }:
+        problems.append("Configure a reachable OLLAMA_HOST or OPENAI_API_KEY")
+
+    if problems:
+        raise RuntimeError("Invalid production configuration: " + "; ".join(problems))
+
+
 # ---------------------------------------------------------------------------
 # Lifespan  (startup / shutdown)
 # ---------------------------------------------------------------------------
@@ -61,6 +92,8 @@ async def lifespan(app: FastAPI):
             "debug": settings.DEBUG,
         },
     )
+
+    validate_production_storage_settings()
 
     # Ensure upload and vector-store directories exist
     settings.upload_dir_path.mkdir(parents=True, exist_ok=True)

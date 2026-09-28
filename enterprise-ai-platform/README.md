@@ -206,6 +206,28 @@ Key variables:
 | `ALLOWED_EMAIL_DOMAINS` | Comma-separated allowed domains (empty = all) |
 | `EMAIL_HOST` / `EMAIL_PASSWORD` | SMTP credentials for OTP emails |
 
+## Production deployment
+
+The current repository uses SQLAlchemy (SQLite by default, PostgreSQL supported), local FAISS files, and local PDF files when `S3_BUCKET` is empty. It does **not** currently use MongoDB. Do not deploy the SQLite database or `data/uploads` as Vercel function storage.
+
+Recommended production topology:
+
+- Deploy `web/` to Vercel with `API_BACKEND_URL` set to the HTTPS origin of the separately hosted FastAPI service.
+- Run FastAPI and the existing Celery worker on a persistent container platform. Use managed PostgreSQL through `DATABASE_URL`, managed Redis through `REDIS_URL`, and set `CELERY_ENABLED=true` so indexing is queued rather than tied to a request process.
+- Set `S3_BUCKET` (and region/endpoint/credentials or the host IAM role) for persistent uploaded PDFs.
+- Mount the same persistent shared filesystem, such as AWS EFS, at the same path for every API instance and Celery worker. Set `VECTOR_STORE_PATH` to its `vector_store` directory. The FAISS index format and retrieval algorithm remain unchanged; a Redis lock serializes production index mutations and a generation marker makes other instances reload updates.
+- Keep `JWT_SECRET_KEY` identical and stable on every API instance. Set `CORS_ORIGINS` to the deployed frontend origin if the API is accessed directly; the browser normally calls the same-origin Next.js `/api` rewrite.
+
+The backend refuses `APP_ENV=production` startup when it detects SQLite, local-only file storage, disabled Celery, a loopback Redis/LLM endpoint, or a relative FAISS path. Apply database migrations before starting production traffic:
+
+```bash
+alembic upgrade head
+```
+
+Deploy the Next.js project from the `enterprise-ai-platform/web` root with build command `npm run build`. Deploy FastAPI separately from `enterprise-ai-platform` using the existing `app.main:app` entrypoint and the host's persistent container command, for example `uvicorn app.main:app --host 0.0.0.0 --port 8000`. Run the existing Celery worker as a separate long-lived service using `celery -A app.workers.celery_app.celery_app worker --loglevel=info`.
+
+The `pyproject.toml` Vercel entrypoint remains configured for `app.main:app` if deploying that backend as a Vercel Function is explicitly required, but Vercel functions do not provide the shared EFS mount or long-lived Celery worker required by this storage topology. A Vercel-only backend deployment is therefore not the recommended production setup for this FAISS-based application.
+
 ---
 
 ## Running tests

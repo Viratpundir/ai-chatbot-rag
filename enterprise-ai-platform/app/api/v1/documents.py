@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import asyncio
 import uuid
 from pathlib import Path as FilePath
+from urllib.parse import quote
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Path, Query, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from app.auth.jwt import get_current_user
 from app.auth.permissions import (
@@ -28,6 +30,7 @@ from app.schemas.documents import (
     DocumentStatusResponse,
     DocumentUploadResponse,
 )
+from app.storage import delete_document_file, is_object_storage_path, open_document_object, store_document_file
 from app.workers.ingestion import enqueue_document_ingestion, remove_document_from_index
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
@@ -50,14 +53,18 @@ async def _process_uploaded_file(
 
     extension = filename.rsplit(".", 1)[-1].lower()
     stored_name = f"{uuid.uuid4()}.{extension}"
-    stored_path = settings.upload_dir_path / stored_name
-    stored_path.write_bytes(content)
+    stored_path = await asyncio.to_thread(
+        store_document_file,
+        stored_name,
+        content,
+        file.content_type,
+    )
     checksum = hashlib.sha256(content).hexdigest()
     repo = DocumentRepository(db)
     document = await repo.create(
         filename=stored_name,
         original_filename=filename,
-        file_path=str(stored_path),
+        file_path=stored_path,
         file_size=len(content),
         file_type=extension,
         mime_type=file.content_type,
@@ -201,7 +208,29 @@ async def download_document(
     db=Depends(get_db),
 ):
     document = await _get_accessible_document(document_id, current_user, db)
-    if not document.file_path or not FilePath(document.file_path).exists():
+    if not document.file_path:
+        raise HTTPException(status_code=404, detail="Stored file not found.")
+    if is_object_storage_path(document.file_path):
+        try:
+            body = await asyncio.to_thread(open_document_object, document.file_path)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=404, detail="Stored file not found.") from exc
+
+        async def stream_file():
+            try:
+                while chunk := await asyncio.to_thread(body.read, 64 * 1024):
+                    yield chunk
+            finally:
+                await asyncio.to_thread(body.close)
+
+        return StreamingResponse(
+            stream_file(),
+            media_type=document.mime_type or "application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{quote(document.original_filename)}"
+            },
+        )
+    if not FilePath(document.file_path).exists():
         raise HTTPException(status_code=404, detail="Stored file not found.")
     return FileResponse(
         path=document.file_path,
@@ -285,6 +314,10 @@ async def delete_document(
     )
     if background_tasks:
         background_tasks.add_task(remove_document_from_index, document_id)
+        background_tasks.add_task(delete_document_file, document.file_path)
+    else:
+        await asyncio.to_thread(delete_document_file, document.file_path)
+        await remove_document_from_index(document_id)
     return None
 
 

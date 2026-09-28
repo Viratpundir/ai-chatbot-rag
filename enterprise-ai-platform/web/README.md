@@ -2,6 +2,19 @@
 
 Next.js frontend for the Enterprise AI Knowledge Platform. It uses the FastAPI service in the parent project for authentication, document management, RAG chat, conversation history and admin health data.
 
+## Deploy on Vercel
+
+For production, deploy the frontend and backend separately:
+
+1. **FastAPI backend:** deploy `enterprise-ai-platform` as a persistent container service with the existing `app.main:app` entrypoint. Configure PostgreSQL, Redis/Celery, S3-compatible document storage, and the same shared persistent filesystem path for FAISS on all API and worker instances. The backend `pyproject.toml` retains the Vercel entrypoint setting but Vercel Functions do not provide the shared mount and long-lived worker required by this recommended topology.
+2. **Next.js frontend:** set the Vercel Root Directory to `enterprise-ai-platform/web` and use the Next.js preset with build command `npm run build`. Set the server-only `API_BACKEND_URL` in Vercel's Production, Preview, and Development environments to the deployed FastAPI origin, for example `https://your-api.example.com` (no `/api` suffix). Browser API calls remain relative and Next.js rewrites `/api/*` to that origin.
+
+Do not configure the repository root as the FastAPI project: the root `api.py` and `app.py` belong to the separate starter application, not NexaIQ. Do not set the entrypoint to a test module.
+
+`API_BACKEND_URL` is required for Vercel builds and deployments. For local frontend development, copy `.env.example` to `.env.local`; its loopback value is for local use only. Backend storage variables and the required production topology are documented in the parent project README and `.env.example`.
+
+The entrypoint setting fixes app detection, but it does not make local SQLite, uploaded files, or the FAISS index durable across Vercel function instances. Production document persistence and background ingestion still require durable storage/worker infrastructure before uploads can be relied on after redeploys or across instances.
+
 ## Run locally
 
 Start the API from `enterprise-ai-platform`:
@@ -17,7 +30,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:3000. Browser requests use relative `/api/...` paths and Next.js proxies them to FastAPI at `http://127.0.0.1:8000` by default. To use another API address, set the server-only `API_BACKEND_URL` in `web/.env.local` (or use the existing `NEXT_PUBLIC_API_URL` as a fallback). Restart Next.js after changing this setting.
+Open http://localhost:3000. Browser requests use relative `/api/...` paths and Next.js proxies them to FastAPI at `http://127.0.0.1:8000` by default. To use another API address, set the server-only `API_BACKEND_URL` in `web/.env.local`. Restart Next.js after changing this setting.
 
 The protected Admin Dashboard is at `/admin`. It verifies the current user's role, requires administrator re-authentication, and fetches data from FastAPI admin routes that independently enforce roles.
 

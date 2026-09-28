@@ -87,6 +87,7 @@ aiosmtplib==3.0.2               # async SMTP
 # Utilities
 # -------------------------------------------------------------
 python-dotenv==1.0.1
+boto3>=1.35,<2
 httpx==0.27.2                   # async HTTP client compatible with Ollama
 tenacity==9.0.0                 # retry logic
 python-slugify==8.0.4
