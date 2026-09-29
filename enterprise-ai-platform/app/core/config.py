@@ -12,7 +12,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional
 
-from pydantic import AnyHttpUrl, EmailStr, Field, field_validator
+from pydantic import AnyHttpUrl, EmailStr, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -72,6 +72,7 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     REDIS_URL: str = "redis://localhost:6379/0"
     CELERY_ENABLED: bool = False
+    FAISS_SINGLE_INSTANCE: bool = False
 
     # ------------------------------------------------------------------
     # Email
@@ -179,6 +180,20 @@ class Settings(BaseSettings):
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ]
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_async_database_url(cls, values):
+        """Render supplies postgresql://; this app uses SQLAlchemy's async engine."""
+        if isinstance(values, dict):
+            database_url = values.get("DATABASE_URL") or values.get("database_url")
+            if isinstance(database_url, str):
+                if database_url.startswith("postgres://"):
+                    database_url = "postgresql+asyncpg://" + database_url[len("postgres://"):]
+                elif database_url.startswith("postgresql://"):
+                    database_url = "postgresql+asyncpg://" + database_url[len("postgresql://"):]
+                values["DATABASE_URL"] = database_url
+        return values
 
     # ------------------------------------------------------------------
     # Validators

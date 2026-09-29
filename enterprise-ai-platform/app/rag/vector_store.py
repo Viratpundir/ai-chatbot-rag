@@ -66,7 +66,7 @@ class VectorStoreManager:
 
     @contextmanager
     def _distributed_index_lock(self) -> Iterator[None]:
-        if not settings.is_production:
+        if not settings.is_production or settings.FAISS_SINGLE_INSTANCE:
             yield
             return
 

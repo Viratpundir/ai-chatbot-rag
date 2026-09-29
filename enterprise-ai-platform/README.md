@@ -228,6 +228,16 @@ Deploy the Next.js project from the `enterprise-ai-platform/web` root with build
 
 The `pyproject.toml` Vercel entrypoint remains configured for `app.main:app` if deploying that backend as a Vercel Function is explicitly required, but Vercel functions do not provide the shared EFS mount or long-lived Celery worker required by this storage topology. A Vercel-only backend deployment is therefore not the recommended production setup for this FAISS-based application.
 
+### Render deployment
+
+The repository-root `render.yaml` is a Render Blueprint for the recommended separate frontend/backend deployment. It creates a Render web service for FastAPI, a Next.js web service, and private Render Postgres. During Blueprint setup, provide the prompted S3 bucket/region/credentials and a publicly reachable LLM endpoint/key. Render exposes the API's `RENDER_EXTERNAL_URL` to the frontend as `API_BACKEND_URL`.
+
+This Blueprint intentionally runs one FastAPI instance with `FAISS_SINGLE_INSTANCE=true`, a persistent `/var/data` disk, `CELERY_ENABLED=false`, and the existing FastAPI post-response background ingestion. This keeps the existing FAISS store persistent without moving it to another vector database. Render persistent disks cannot be mounted by a second service or scaled across replicas. If multi-instance API scaling or a separate worker is needed later, move FAISS to shared object-backed/vector storage before scaling; do not add a separate Celery service that writes to a different local index.
+
+Render supplies a standard `postgresql://` connection string; application settings normalize it to `postgresql+asyncpg://` for the existing async SQLAlchemy engine. The configured pre-deploy command runs `alembic upgrade head` before service start.
+
+To deploy, push `render.yaml` to GitHub, choose **New + → Blueprint** in Render, connect this repository/branch, and fill in the prompted object-storage and reachable-LLM values. The Blueprint and external services are not provisioned by local tests; verify the Render service health endpoint and perform a test upload/delete before production use.
+
 ---
 
 ## Running tests

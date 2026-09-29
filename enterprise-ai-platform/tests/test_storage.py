@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from app.core.config import settings
+from app.core.config import Settings, settings
 from app.main import validate_production_storage_settings
 from app.storage import (
     delete_document_file,
@@ -136,3 +136,28 @@ def test_production_storage_validation_accepts_shared_services(monkeypatch) -> N
     monkeypatch.setenv("JWT_SECRET_KEY", "test-production-secret")
 
     validate_production_storage_settings()
+
+
+def test_production_storage_validation_accepts_render_single_instance(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "APP_ENV", "production")
+    monkeypatch.setattr(settings, "DATABASE_URL", "postgresql+asyncpg://user:pass@db.example.test/app")
+    monkeypatch.setattr(settings, "S3_BUCKET", "nexaiq-documents")
+    monkeypatch.setattr(settings, "CELERY_ENABLED", False)
+    monkeypatch.setattr(settings, "FAISS_SINGLE_INSTANCE", True)
+    monkeypatch.setattr(settings, "VECTOR_STORE_PATH", "/var/data/vector_store")
+    monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-provider-key")
+    monkeypatch.setenv("JWT_SECRET_KEY", "test-production-secret")
+
+    validate_production_storage_settings()
+
+
+@pytest.mark.parametrize(
+    ("database_url", "expected"),
+    [
+        ("postgres://user:pass@db.example.test/app", "postgresql+asyncpg://user:pass@db.example.test/app"),
+        ("postgresql://user:pass@db.example.test/app", "postgresql+asyncpg://user:pass@db.example.test/app"),
+        ("postgresql+asyncpg://user:pass@db.example.test/app", "postgresql+asyncpg://user:pass@db.example.test/app"),
+    ],
+)
+def test_render_postgres_url_uses_existing_async_driver(database_url, expected) -> None:
+    assert Settings(DATABASE_URL=database_url).DATABASE_URL == expected

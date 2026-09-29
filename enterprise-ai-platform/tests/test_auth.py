@@ -15,12 +15,20 @@ from app.auth.permissions import require_admin
 from app.api.v1 import chat
 from app.core.config import settings
 from app.database.models import User
-from app.main import app
+from app.main import app, should_warm_embeddings_at_startup
 from app.schemas.chat import ChatRequest
 from app.schemas.auth import RegisterRequest
 from app.seed_admin import seed_admin
 from app.core.security import create_refresh_token
 from app.auth import jwt as jwt_module
+
+
+def test_vercel_skips_embedding_warmup_but_local_runtime_keeps_it(monkeypatch) -> None:
+    monkeypatch.setenv("VERCEL", "1")
+    assert should_warm_embeddings_at_startup() is False
+
+    monkeypatch.delenv("VERCEL")
+    assert should_warm_embeddings_at_startup() is True
 
 
 @pytest.mark.parametrize("role", ["EMPLOYEE", "STUDENT"])

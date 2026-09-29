@@ -59,9 +59,9 @@ def validate_production_storage_settings() -> None:
         problems.append("JWT_SECRET_KEY must be a stable environment secret")
     if not settings.S3_BUCKET:
         problems.append("S3_BUCKET must be configured for persistent uploaded PDFs")
-    if not settings.CELERY_ENABLED:
-        problems.append("CELERY_ENABLED must be true so ingestion runs in the worker")
-    if urlsplit(settings.REDIS_URL).hostname in {"localhost", "127.0.0.1", "0.0.0.0"}:
+    if not settings.CELERY_ENABLED and not settings.FAISS_SINGLE_INSTANCE:
+        problems.append("Enable CELERY_ENABLED with shared vector storage, or explicitly set FAISS_SINGLE_INSTANCE=true with one persistent-disk API instance")
+    if settings.CELERY_ENABLED and urlsplit(settings.REDIS_URL).hostname in {"localhost", "127.0.0.1", "0.0.0.0"}:
         problems.append("REDIS_URL must point to the shared production Redis service")
     if not Path(settings.VECTOR_STORE_PATH).is_absolute() and not PurePosixPath(settings.VECTOR_STORE_PATH).is_absolute():
         problems.append("VECTOR_STORE_PATH must be an absolute shared persistent mount")
@@ -72,6 +72,11 @@ def validate_production_storage_settings() -> None:
 
     if problems:
         raise RuntimeError("Invalid production configuration: " + "; ".join(problems))
+
+
+def should_warm_embeddings_at_startup() -> bool:
+    """Avoid loading large ML models before lightweight Vercel auth/health requests."""
+    return os.getenv("VERCEL") != "1"
 
 
 # ---------------------------------------------------------------------------
@@ -101,7 +106,7 @@ async def lifespan(app: FastAPI):
 
     # Verify database connectivity (non-fatal — app starts even if DB is temporarily down)
     await connect_db()
-    if settings.DATABASE_URL.startswith("sqlite"):
+    if not settings.CELERY_ENABLED:
         async with db_session() as db:
             await db.execute(
                 text(
@@ -114,13 +119,15 @@ async def lifespan(app: FastAPI):
                 )
             )
 
-    # Warm up the embedding model so the first request is not slow
-    try:
-        from app.rag.embeddings import get_embeddings
-        get_embeddings()
-        logger.info("Embedding model warmed up")
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not warm up embedding model", extra={"error": str(exc)})
+    if should_warm_embeddings_at_startup():
+        try:
+            from app.rag.embeddings import get_embeddings
+            get_embeddings()
+            logger.info("Embedding model warmed up")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Could not warm up embedding model", extra={"error": str(exc)})
+    else:
+        logger.info("Skipping embedding warm-up in Vercel runtime; RAG models load on demand")
 
     yield  # application is now running
 

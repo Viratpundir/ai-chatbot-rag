@@ -15,6 +15,10 @@ Do not configure the repository root as the FastAPI project: the root `api.py` a
 
 The entrypoint setting fixes app detection, but it does not make local SQLite, uploaded files, or the FAISS index durable across Vercel function instances. Production document persistence and background ingestion still require durable storage/worker infrastructure before uploads can be relied on after redeploys or across instances.
 
+## Deploy on Render
+
+Use the repository-root `render.yaml` Blueprint to deploy the Next.js service and FastAPI service separately with Render Postgres, a single persistent-disk FAISS API instance, and S3-compatible PDF storage. Create the Blueprint in Render and provide its prompted S3 and reachable LLM settings. The Next service receives the API URL through Render's `RENDER_EXTERNAL_URL` service reference; browser requests still use relative `/api/...` routes. See the parent `README.md` for the single-instance FAISS constraint and scale-out limitation.
+
 ## Run locally
 
 Start the API from `enterprise-ai-platform`:

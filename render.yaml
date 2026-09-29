@@ -1,0 +1,78 @@
+services:
+  - type: web
+    name: nexaiq-api
+    runtime: python
+    rootDir: enterprise-ai-platform
+    region: oregon
+    plan: 1c-2g
+    numInstances: 1
+    buildCommand: pip install -r requirements.txt
+    preDeployCommand: alembic upgrade head
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/v1/health
+    disk:
+      name: nexaiq-faiss
+      mountPath: /var/data
+      sizeGB: 10
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DEBUG
+        value: "false"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nexaiq-postgres
+          property: connectionString
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: CELERY_ENABLED
+        value: "false"
+      - key: FAISS_SINGLE_INSTANCE
+        value: "true"
+      - key: VECTOR_STORE_PATH
+        value: /var/data/vector_store
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_ENDPOINT_URL
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_DOCUMENT_PREFIX
+        value: documents
+      - key: OLLAMA_HOST
+        sync: false
+      - key: OLLAMA_MODEL
+        value: llama3.2:1b
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        value: "[]"
+      - key: UPLOAD_DIR
+        value: /var/data/uploads
+
+  - type: web
+    name: nexaiq-web
+    runtime: node
+    rootDir: enterprise-ai-platform/web
+    region: oregon
+    plan: 1c-2g
+    buildCommand: npm ci && npm run build
+    startCommand: npm start -- --hostname 0.0.0.0 --port $PORT
+    envVars:
+      - key: API_BACKEND_URL
+        fromService:
+          type: web
+          name: nexaiq-api
+          envVarKey: RENDER_EXTERNAL_URL
+
+databases:
+  - name: nexaiq-postgres
+    databaseName: enterprise_ai
+    user: enterprise_ai
+    region: oregon
+    plan: 0.1c-256mb
+    ipAllowList: []
